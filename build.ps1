@@ -15,7 +15,7 @@ Push-Location $PSScriptRoot
 try {
     $version = ([xml](Get-Content Directory.Build.props -Raw)).Project.PropertyGroup.Version
     $variant = if ($CertificateThumbprint) { 'signed' } else { 'unsigned' }
-    $archive = "dist/Связь-$version-win-x64-$variant.zip"
+    $archive = "dist/Svyaz-$version-win-x64-$variant.zip"
     & ./tests/Signing.Checks.ps1
     dotnet run --project tests/DiscordRoute.Checks
     if ($LASTEXITCODE -ne 0) { throw 'Проверки не прошли.' }
