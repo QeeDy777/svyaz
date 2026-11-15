@@ -48,7 +48,7 @@ internal static class WindowsChecks
                 model.HasError = false;
                 Check(model.DiscordSummary.Contains("выключен") && model.Telegram.Summary.Contains("выключен"), "Separate service status starts disconnected");
                 Check(model.ConnectionTime.Contains("не запущено") && model.LastCheck.Contains("пока нет"), "No invented connection time or successful check");
-                Check(model.AppUpdates.CurrentNotes.Contains("0.7.1") && model.AppUpdates.EarlierNotes.Contains("0.6.1"), "Release history available offline");
+                Check(model.AppUpdates.CurrentNotes.Contains("0.8.0") && model.AppUpdates.EarlierNotes.Contains("0.6.1"), "Release history available offline");
                 model.Report(new("fixture", "unused"), new(new(true, "sensitive-sentinel"), new(true, "sensitive-sentinel"), new(false, "sensitive-sentinel"), new(new(true, "sensitive-sentinel"), new(false, "sensitive-sentinel"))), "Failed");
                 model.ShowServiceResults(null);
                 var report = model.CreateDiagnosticReport();
@@ -64,8 +64,8 @@ internal static class WindowsChecks
                 Check(!InstallerMaintenance.OwnTask("DiscordRoute-test", TaskXml(@"C:\App\Versions-other\Связь.exe"), @"C:\App"), "sibling path preserved");
             }
             finally { ((MainViewModel)window.DataContext).Dispose(); }
-            Task.Run(() => CheckProxyAsync(args.Take(2).ToArray())).GetAwaiter().GetResult();
-            SelfUpdateChecks.Run(args.Length >= 3 ? args[2] : null, Check, args.Length >= 4 ? args[3] : null);
+            Task.Run(() => CheckProxyAsync()).GetAwaiter().GetResult();
+            SelfUpdateChecks.Run(args.Length >= 1 ? args[0] : null, Check, args.Length >= 2 ? args[1] : null);
             Console.WriteLine("Windows checks passed. Telegram messages/calls were not tested.");
             return 0;
         }
@@ -115,42 +115,49 @@ internal static class WindowsChecks
         return null;
     }
 
-    private static async Task CheckProxyAsync(string[] args)
+    private static async Task CheckProxyAsync()
     {
-        var root = Path.Combine(Path.GetTempPath(), "svyaz-windows-" + Guid.NewGuid().ToString("N"));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Server.ExclusiveAddressUse = true;
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var settings = new TelegramSettings { Port = port }.WithSecret();
+        var configuration = settings.Configuration("{\"pool_size\":0,\"cfproxy\":false}");
+        var existing = System.Diagnostics.Process.GetProcessesByName("TgWsProxy_windows").Select(p => p.Id).ToHashSet();
+        using var runner = new TelegramRunner();
         try
         {
-            var store = new TelegramPackageStore(root, Console.WriteLine);
-            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(4));
-            if (args.Length != 0 && args.Length != 2) throw new ArgumentException("Expected release JSON and official EXE paths");
-            var package = args.Length == 2
-                ? store.Install(TelegramPackageStore.ParseRelease(File.ReadAllText(args[0])), File.ReadAllBytes(args[1]))
-                : await store.StageLatestAsync(null, timeout.Token) ?? throw new Exception("Missing package");
-            var listener = new TcpListener(IPAddress.Loopback, 0);
-            listener.Server.ExclusiveAddressUse = true;
-            listener.Start();
-            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-            var settings = new TelegramSettings { Port = port }.WithSecret();
-            settings.WriteConfiguration(package.Root);
-            using var runner = new TelegramRunner();
-            try
+            try { await runner.StartAsync(configuration, settings, timeout.Token); throw new Exception("Busy port accepted"); }
+            catch (IOException ex) when (ex.InnerException is SocketException) { }
+            Check(!runner.IsRunning && listener.Server.IsBound, "foreign listener left intact");
+        }
+        finally { listener.Stop(); }
+        for (var run = 0; run < 3; run++)
+        {
+            await runner.StartAsync(configuration, settings, timeout.Token);
+            Check(runner.IsRunning, "embedded Telegram running, pass " + run);
+            using (var client = new TcpClient())
             {
-                try { await runner.StartAsync(package, settings, timeout.Token); throw new Exception("Busy port accepted"); }
-                catch (IOException ex) when (ex.InnerException is SocketException) { }
-                Check(!runner.IsRunning && listener.Server.IsBound, "foreign listener left intact");
+                await client.ConnectAsync(IPAddress.Loopback, port, timeout.Token);
+                await client.GetStream().WriteAsync(new byte[64], timeout.Token);
             }
-            finally { listener.Stop(); }
-            await runner.StartAsync(package, settings, timeout.Token);
-            Check(runner.IsRunning, "official Telegram EXE running and local port responds");
+            Check(System.Diagnostics.Process.GetCurrentProcess().Modules.Cast<System.Diagnostics.ProcessModule>().Any(m => m.ModuleName == "python314.dll"),
+                "Python DLL is loaded inside the current process");
+            Check(System.Diagnostics.Process.GetProcessesByName("TgWsProxy_windows").All(p => existing.Contains(p.Id)), "no separate TG WS Proxy process launched");
             await runner.StopAsync();
-            Check(!runner.IsRunning, "Telegram process stopped");
-            Check(!Directory.EnumerateDirectories(TelegramRunner.TempRoot).Any(), "PyInstaller extraction cleaned after stop");
+            Check(!runner.IsRunning, "embedded Telegram stopped");
             listener = new TcpListener(IPAddress.Loopback, port);
             listener.Server.ExclusiveAddressUse = true;
-            try { listener.Start(); Console.WriteLine("PASS: child process released proxy port"); }
+            try { listener.Start(); Check(true, "embedded engine released proxy port"); }
             finally { listener.Stop(); }
         }
-        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        try { await runner.StartAsync(configuration, settings, cancelled.Token); throw new Exception("Cancellation ignored"); }
+        catch (OperationCanceledException) { Check(!runner.IsRunning, "cancelled start does not leave a proxy running"); }
+        var runtime = TelegramRuntime.Prepare(Path.Combine(Program.DataRoot, "Telegram", "Embedded"));
+        Check(!Directory.EnumerateFiles(runtime, "*.exe", SearchOption.AllDirectories).Any(), "embedded runtime contains no executable launchers");
     }
 
     private static void Check(bool success, string name)

@@ -23,7 +23,7 @@ IconChecks.Run(Check);
 TelegramChecks.Run(Check);
 AppUpdateChecks.Run(Check);
 await YouTubeChecks.RunAsync(Check, args.Contains("--youtube-smoke"));
-await TelegramPackageChecks.RunAsync(Check, args.Contains("--telegram-smoke"));
+TelegramMigrationChecks.Run(Check);
 await GameFilterChecks.RunAsync(Check);
 var ui = new PresentationState();
 Check(!ui.ShowDisconnect && ui.PrimaryActionLabel == "Подключить", "Idle primary action connects");

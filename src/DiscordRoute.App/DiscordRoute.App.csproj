@@ -23,6 +23,7 @@
   </ItemGroup>
   <ItemGroup><ProjectReference Include="../DiscordRoute.Core/DiscordRoute.Core.csproj" /></ItemGroup>
   <ItemGroup><Resource Include="Assets/app.ico" /></ItemGroup>
+  <ItemGroup><EmbeddedResource Include="../../dist/telegram-runtime.zip" LogicalName="TelegramRuntime.zip" /></ItemGroup>
   <ItemGroup><Content Include="../../licenses/*.txt" Link="%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" /></ItemGroup>
   <ItemGroup><InternalsVisibleTo Include="DiscordRoute.WindowsChecks" /></ItemGroup>
 </Project>

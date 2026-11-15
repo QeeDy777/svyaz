@@ -139,7 +139,7 @@
                 <ScrollViewer Style="{StaticResource PageScrollViewer}" Foreground="{DynamicResource BrandInk}" FontSize="14" VerticalScrollBarVisibility="Auto" Padding="8,20,0,16">
                     <StackPanel DataContext="{Binding Telegram}">
                         <TextBlock Text="Telegram" FontSize="28" FontWeight="SemiBold" Margin="0,0,0,10"/>
-                        <TextBlock Text="Локальный прокси Flowseal" Style="{StaticResource SecondaryText}" Margin="0,0,0,20"/>
+                        <TextBlock Text="Встроенный прокси Flowseal" Style="{StaticResource SecondaryText}" Margin="0,0,0,20"/>
                         <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,16" AutomationProperties.LiveSetting="Polite"/>
                         <Button Content="{Binding PrimaryLabel}" Command="{Binding PrimaryCommand}" Padding="18,12" HorizontalAlignment="Stretch" Margin="0,0,0,12"/>
                         <Button Style="{StaticResource QuietButton}" Content="Открыть в Telegram" Command="{Binding OpenCommand}" Padding="18,10" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
@@ -154,13 +154,12 @@
                                     <TextBox x:Name="TelegramPort" Text="{Binding Port, UpdateSourceTrigger=PropertyChanged}" MaxLength="5" MinHeight="38" AutomationProperties.Name="Локальный порт Telegram"/>
                                     <CheckBox Content="Запускать вместе со «Связью»" IsChecked="{Binding StartWithApp}" Margin="0,16,0,16"/>
                                     <Button Style="{StaticResource QuietButton}" Content="Сохранить настройки" Command="{Binding SaveCommand}" Padding="18,10" HorizontalAlignment="Left" Margin="0,0,0,12"/>
-                                    <Button Style="{StaticResource QuietButton}" Content="Загрузить / обновить компонент" Command="{Binding UpdateCommand}" Padding="18,10" HorizontalAlignment="Left"/>
                                 </StackPanel>
-                                <TextBlock Text="Перед изменением настроек остановите прокси. Автообновление использует общий флажок в настройках и не прерывает работающий Telegram-прокси." Style="{StaticResource SecondaryText}" Margin="0,12,0,0"/>
+                                <TextBlock Text="Перед изменением настроек остановите прокси. Движок обновляется вместе со «Связью»." Style="{StaticResource SecondaryText}" Margin="0,12,0,0"/>
                             </StackPanel>
                         </Expander>
                         <TextBlock Text="Подтвердите прокси в Telegram. После остановки выключите его в Telegram или снова запустите здесь. Готовность локального порта не подтверждает работу сообщений и звонков." Style="{StaticResource SecondaryText}" Margin="0,0,0,12"/>
-                        <TextBlock Text="У TG WS Proxy остаётся собственный значок в трее для расширенных настроек. Discord подключается независимо." Style="{StaticResource SecondaryText}"/>
+                        <TextBlock Text="Всё работает внутри «Связи»: без отдельной программы и значка в трее. Discord подключается независимо." Style="{StaticResource SecondaryText}"/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

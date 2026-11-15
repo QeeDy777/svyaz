@@ -20,6 +20,8 @@ try {
     dotnet run --project tests/DiscordRoute.Checks
     if ($LASTEXITCODE -ne 0) { throw 'Проверки не прошли.' }
     if (Test-Path dist/win-x64) { Remove-Item dist/win-x64 -Recurse -Force }
+    python scripts/prepare-telegram.py
+    if ($LASTEXITCODE -ne 0) { throw 'Сборка встроенного Telegram не прошла.' }
     dotnet publish src/DiscordRoute.App -c Release -r win-x64 --self-contained true -o dist/win-x64
     if ($LASTEXITCODE -ne 0) { throw 'Сборка не прошла.' }
     Get-ChildItem dist/win-x64 -Filter '*.pdb' | Remove-Item

@@ -49,6 +49,24 @@ public sealed record TelegramSettings
 
     public static string ConfigurationPath(string packageRoot) => Path.Combine(packageRoot, "TgWsProxy_data", "config.json");
 
+    public string EmbeddedConfiguration(string telegramRoot, string? activeId, string? pendingId)
+    {
+        string? previousRoot = null;
+        if (!File.Exists(ConfigurationPath(telegramRoot)))
+        {
+            foreach (var id in new[] { activeId, pendingId })
+            {
+                if (id == null) continue;
+                if (!Regex.IsMatch(id, @"\A[a-f0-9]{32}\z"))
+                    throw new InvalidDataException("Повреждён идентификатор прежнего компонента Telegram.");
+                var candidate = Path.Combine(telegramRoot, "Packages", id);
+                if (File.Exists(ConfigurationPath(candidate))) { previousRoot = candidate; break; }
+            }
+        }
+        WriteConfiguration(telegramRoot, previousRoot);
+        return File.ReadAllText(ConfigurationPath(telegramRoot));
+    }
+
     public void WriteConfiguration(string packageRoot, string? previousRoot = null)
     {
         var path = ConfigurationPath(packageRoot);
