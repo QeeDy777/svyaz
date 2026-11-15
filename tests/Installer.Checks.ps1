@@ -27,9 +27,12 @@ Assert ($current.Version -eq $version) 'Installer registered version for existin
 Assert (Test-Path "$root/Versions/$($current.Id)/Связь.exe") 'Versioned runtime installed'
 $shortcut = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'Связь.lnk'
 Assert (Test-Path $shortcut) 'Start menu shortcut installed'
-$shell = New-Object -ComObject WScript.Shell
-$shortcutTarget = $shell.CreateShortcut($shortcut).TargetPath
+$shell = New-Object -ComObject Shell.Application
+$shortcutItem = $shell.NameSpace((Split-Path $shortcut)).ParseName([IO.Path]::GetFileName($shortcut))
+$shortcutTarget = $shortcutItem.ExtendedProperty('System.Link.TargetParsingPath')
 Write-Host "Shortcut target: $shortcutTarget; expected: $application\Связь.exe"
+Copy-Item $shortcut dist/installer-shortcut.lnk
+Assert (-not [string]::IsNullOrEmpty($shortcutTarget)) 'Shortcut has a filesystem target'
 Assert ([IO.Path]::GetFullPath($shortcutTarget) -eq [IO.Path]::GetFullPath("$application\Связь.exe")) 'Shortcut targets stable application path'
 Remove-Item "$root/Versions/$($current.Id)/wpfgfx_cor3.dll"
 Install repair

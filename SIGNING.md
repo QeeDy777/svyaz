@@ -1,6 +1,6 @@
 # Подпись DiscordRoute и SmartScreen
 
-Текущая поставка 0.5.0 **не подписана**: сертификат издателя и Microsoft Artifact
+Текущая поставка 0.6.0 **не подписана**: сертификат издателя и Microsoft Artifact
 Signing не настроены. В имени архива указано `unsigned`. Скрипты ниже готовят
 путь к подписанному релизу; они не оформляют сертификат и не обходят SmartScreen.
 
@@ -82,3 +82,13 @@ Microsoft Store имеет отдельные правила распростр�
 - [SignTool и параметры проверки](https://learn.microsoft.com/windows/win32/seccrypto/signtool)
 - [Варианты подписи приложений](https://learn.microsoft.com/windows/apps/package-and-deploy/code-signing-options)
 - [Artifact Signing](https://learn.microsoft.com/azure/artifact-signing/overview)
+
+
+## Установщик 0.6
+
+`scripts/build-installer.ps1` создаёт `setup-unsigned.exe` и отдельную SHA-256 сумму.
+Подпись EXE внутри ZIP не подписывает внешний установщик. Для подписанного выпуска
+нужно также настроить [SignTool в Inno Setup](https://jrsoftware.org/ishelp/topic_setup_signtool.htm),
+включить `SignedUninstaller=yes` и проверить подписи внешнего Setup и встроенного
+деинсталлятора. Только после проверки подписи и timestamp пересчитайте SHA-256.
+Текущий скрипт намеренно не называет такой файл `signed` автоматически.

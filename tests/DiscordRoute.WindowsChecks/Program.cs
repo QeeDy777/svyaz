@@ -38,7 +38,7 @@ internal static class WindowsChecks
                     using (var drawing = visual.RenderOpen())
                     {
                         drawing.DrawRectangle(window.Background ?? Brushes.White, null, new Rect(0, 0, 440, 680));
-                        drawing.DrawRectangle(new VisualBrush(content), null, new Rect(0, 0, content.ActualWidth, content.ActualHeight));
+                        drawing.DrawRectangle(new VisualBrush(content), null, new Rect(content.TranslatePoint(new Point(0, 0), window), new Size(content.ActualWidth, content.ActualHeight)));
                     }
                     bitmap.Render(visual);
                     var encoder = new PngBitmapEncoder();

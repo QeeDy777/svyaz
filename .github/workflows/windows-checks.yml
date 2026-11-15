@@ -70,3 +70,4 @@ jobs:
             dist/Svyaz-*.zip*
             dist/Svyaz-*-setup-*.exe*
             dist/installer-*.log
+            dist/installer-shortcut.lnk
