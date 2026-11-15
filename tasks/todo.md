@@ -10,9 +10,10 @@
 - [x] 0.2.1: 80 regression checks; preserved legacy data location during rename.
 - [x] 0.2.2: correct RGB24 ICO frames to RGBA32, preserve nested startup exceptions; 85 checks.
 - [x] 0.3: upstream Game Filter modes/custom ports, persistent settings and verified cached IPSet.
-- [ ] Windows runtime smoke test (requires Windows).
+- [x] Windows CI: WPF construction and official Telegram proxy lifecycle.
+- [ ] User Windows runtime: WinDivert, logon task, messages/calls and accessibility.
 - [ ] Actual signing with a trusted publisher certificate (not available).
 
 - [x] 0.4: managed Telegram proxy, verified downloads, stable local key and portable config.
 - [x] 0.4: independent tab, startup option, update fallback and owned process cleanup.
-- [ ] 0.4: Windows CI integration and final release verification.
+- [x] 0.4: Windows CI integration; verified official Telegram process and cleanup.

@@ -30,7 +30,13 @@ internal static class WindowsChecks
                 var content = (FrameworkElement)window.Content;
                 content.UpdateLayout();
                 var bitmap = new RenderTargetBitmap(440, 680, 96, 96, PixelFormats.Pbgra32);
-                bitmap.Render(content);
+                var visual = new DrawingVisual();
+                using (var drawing = visual.RenderOpen())
+                {
+                    drawing.DrawRectangle(window.Background ?? Brushes.White, null, new Rect(0, 0, 440, 680));
+                    drawing.DrawRectangle(new VisualBrush(content), null, new Rect(0, 0, content.ActualWidth, content.ActualHeight));
+                }
+                bitmap.Render(visual);
                 var encoder = new PngBitmapEncoder();
                 encoder.Frames.Add(BitmapFrame.Create(bitmap));
                 Directory.CreateDirectory("dist");
