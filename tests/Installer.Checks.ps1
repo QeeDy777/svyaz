@@ -28,7 +28,9 @@ Assert (Test-Path "$root/Versions/$($current.Id)/Связь.exe") 'Versioned run
 $shortcut = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'Связь.lnk'
 Assert (Test-Path $shortcut) 'Start menu shortcut installed'
 $shell = New-Object -ComObject WScript.Shell
-Assert ($shell.CreateShortcut($shortcut).TargetPath -eq "$application\Связь.exe") 'Shortcut targets stable application path'
+$shortcutTarget = $shell.CreateShortcut($shortcut).TargetPath
+Write-Host "Shortcut target: $shortcutTarget; expected: $application\Связь.exe"
+Assert ([IO.Path]::GetFullPath($shortcutTarget) -eq [IO.Path]::GetFullPath("$application\Связь.exe")) 'Shortcut targets stable application path'
 Remove-Item "$root/Versions/$($current.Id)/wpfgfx_cor3.dll"
 Install repair
 Assert (Test-Path "$root/Versions/$($current.Id)/wpfgfx_cor3.dll") 'Repair restores missing runtime DLL'
@@ -43,7 +45,7 @@ try {
     Disable-ScheduledTask -TaskName $legacyName | Out-Null
     Install migrate
     $migrated = Get-ScheduledTask -TaskName $legacyName
-    Assert ($migrated.Actions.Execute -eq "$root/Versions/$($current.Id)/Связь.exe") 'Legacy autostart migrated without opening app'
+    Assert ([IO.Path]::GetFullPath($migrated.Actions.Execute) -eq [IO.Path]::GetFullPath("$root/Versions/$($current.Id)/Связь.exe")) 'Legacy autostart migrated without opening app'
     Assert ($migrated.Actions.Arguments -eq '--startup' -and $migrated.State -eq 'Disabled') 'Autostart arguments and disabled state preserved'
     $uninstaller = (Get-ChildItem $root -Filter 'unins*.exe' | Select-Object -First 1).FullName
     $log = Join-Path $PWD 'dist/installer-uninstall.log'
