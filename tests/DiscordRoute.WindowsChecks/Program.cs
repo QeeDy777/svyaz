@@ -39,7 +39,7 @@ internal static class WindowsChecks
                 Check(model.ConnectionTime.Contains("не запущено") && model.LastCheck.Contains("пока нет"), "No invented connection time or successful check");
                 Check(model.AppUpdates.CurrentNotes.Contains("0.7.0") && model.AppUpdates.EarlierNotes.Contains("0.6.1"), "Release history available offline");
                 var network = CurrentNetwork.Read();
-                Check(network == null || network.Length == 64, "Windows network identity is hashed or explicitly unknown");
+                Check(network?.Length == 64, "Connected Windows CI network provides a hashed NLM identity");
                 Console.WriteLine("NLM profile detected: " + (network != null));
                 UpdateNoticeChecks.Run(window, tabs, Check, name => SaveScreenshot(window, name));
                 Check(InstallerMaintenance.OwnTask("DiscordRoute-test", TaskXml(@"C:\App\Versions\abc\Связь.exe"), @"C:\App"), "owned autostart identified");
