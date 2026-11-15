@@ -1,5 +1,8 @@
 """Headless lifecycle adapter for the pinned Flowseal engine (no tray imports)."""
 import asyncio
+import hashlib
+import struct
+import time
 import json
 import logging
 import os
@@ -16,6 +19,7 @@ _loop = None
 _task = None
 _error = None
 _stopping = False
+_probe_future = None
 _refresh_stop = threading.Event()
 _refresh_lock = threading.Lock()
 
@@ -81,10 +85,11 @@ def configure(raw):
 
 
 def start(raw):
-    global _thread, _error, _stopping
+    global _thread, _error, _stopping, _probe_future
     if _thread is not None and _thread.is_alive():
         raise RuntimeError('already running')
     configure(raw)
+    _probe_future = None
     _error, _stopping = None, False
     _thread = threading.Thread(target=_run, name='Svyaz Telegram', daemon=True)
     _thread.start()
@@ -132,6 +137,7 @@ def _run():
 def stop():
     global _stopping
     _stopping = True
+    cancel_probe()
     with _refresh_lock:
         _refresh_stop.set()
     if _loop is not None and _task is not None:
@@ -145,4 +151,65 @@ def stop():
 def status():
     server = engine._server_instance
     alive = _thread is not None and _thread.is_alive()
-    return json.dumps({'alive': alive, 'ready': alive and not _stopping and server is not None and bool(server.sockets), 'error': _error})
+    probe = 'idle'
+    if _probe_future is not None and not _probe_future.cancelled():
+        if not _probe_future.done():
+            probe = 'checking'
+        else:
+            try:
+                probe = 'passed' if _probe_future.result() else 'failed'
+            except Exception:
+                probe = 'failed'
+    return json.dumps({'alive': alive, 'ready': alive and not _stopping and server is not None and bool(server.sockets), 'error': _error, 'probe': probe})
+
+
+async def _probe_server(timeout=12):
+    """Anonymous MTProto req_pq_multi through our listener; no account or auth key."""
+    writer = None
+    try:
+        async with asyncio.timeout(timeout):
+            pc = config.proxy_config
+            secret = bytes.fromhex(pc.secret)
+            initial = bytearray(os.urandom(64))
+            initial[0] = 0x10
+            initial[4] |= 1
+            initial[56:60] = b'\xee' * 4
+            dc = 2 if 2 in pc.dc_redirects else next(iter(pc.dc_redirects), 2)
+            initial[60:62] = struct.pack('<h', dc)
+            outgoing = engine.Cipher(engine.algorithms.AES(hashlib.sha256(initial[8:40] + secret).digest()),
+                                     engine.modes.CTR(bytes(initial[40:56]))).encryptor()
+            encrypted = outgoing.update(bytes(initial))
+            reverse = bytes(initial[8:56])[::-1]
+            incoming = engine.Cipher(engine.algorithms.AES(hashlib.sha256(reverse[:32] + secret).digest()),
+                                     engine.modes.CTR(reverse[32:])).encryptor()
+            nonce = os.urandom(16)
+            body = struct.pack('<I', 0xbe7e8ef1) + nonce
+            message = struct.pack('<QQI', 0, int(time.time() * (1 << 32)) & ~3, len(body)) + body
+            reader, writer = await asyncio.open_connection('127.0.0.1', pc.port)
+            writer.write(bytes(initial[:56]) + encrypted[56:] + outgoing.update(struct.pack('<I', len(message)) + message))
+            await writer.drain()
+            length = struct.unpack('<I', incoming.update(await reader.readexactly(4)))[0]
+            if not 56 <= length <= 4096 or length % 4:
+                return False
+            reply = incoming.update(await reader.readexactly(length))
+            return (reply[:8] == bytes(8) and struct.unpack_from('<I', reply, 16)[0] == length - 20
+                    and reply[20:24] == struct.pack('<I', 0x05162463) and reply[24:40] == nonce)
+    except (OSError, TimeoutError, asyncio.IncompleteReadError, ValueError):
+        return False
+    finally:
+        if writer is not None:
+            writer.close()
+            await writer.wait_closed()
+
+
+def start_probe():
+    global _probe_future
+    cancel_probe()
+    if _loop is None or _stopping:
+        raise RuntimeError('not running')
+    _probe_future = asyncio.run_coroutine_threadsafe(_probe_server(), _loop)
+
+
+def cancel_probe():
+    if _probe_future is not None and not _probe_future.done():
+        _probe_future.cancel()

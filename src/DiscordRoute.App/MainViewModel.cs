@@ -19,11 +19,35 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     private readonly Action<Action> dispatch;
     private CancellationTokenSource? cancellation;
     private DateTimeOffset nextUpdateAttempt = DateTimeOffset.MinValue;
-    private bool ready, stopRequested, exiting, disposed, startupRetry;
-    private bool telegramExited;
+    private bool ready, stopRequested, exiting, disposed;
+    private bool telegramExited, ticking;
+    private int environmentVersion;
+    private readonly ConnectionRecovery recovery = new();
+    private DateTimeOffset nextHealthCheck;
+    private ConnectionHelp? help;
+    public event Action? SettingsRequested;
+    public ServiceSelection Services => preferences.Services!;
+    public bool UseDiscord { get; set; }
+    public bool UseYouTube { get; set; }
+    public bool UseTelegram { get; set; }
+    public bool QuietNotifications { get; set; }
+    public bool CanConfigureServices => !IsBusy && !runner.IsRunning && !Telegram.IsBusy && !Telegram.IsRunning && !recovery.Wanted && !Telegram.Recovery.Wanted;
+    public bool AnyBusy => IsBusy || Telegram.IsBusy;
+    public new bool ShowDisconnect => AnyBusy || IsProcessRunning || Telegram.IsRunning || recovery.Wanted || Telegram.Recovery.Wanted;
+    public new string PrimaryActionLabel => AnyBusy ? "Отменить и отключить" : ShowDisconnect ? "Отключить" : "Подключить";
+    public new string Heading => AnyBusy ? "Проверяем подключение" : HasError || Services.Telegram && Telegram.HasFailure ? "Нужно ваше внимание" :
+        (Services.UsesZapret ? IsVerified : true) && (!Services.Telegram || Telegram.ServerVerified) ? "Выбранные сервисы\nотвечают" :
+        ShowDisconnect ? "Соединение проверяется" : "Всё начинается\nс одного нажатия.";
+    public string SelectedServicesSummary => string.Join(" · ", new[] { Services.Discord ? "Discord" : null, Services.YouTube ? "YouTube" : null, Services.Telegram ? "Telegram" : null }.OfType<string>());
+    public string SelectionFeedback { get; private set => Set(ref field, value); } = "Отключите подключения перед изменением выбора.";
+    public string ConnectionStatus => Services.Telegram && (!Services.UsesZapret || Telegram.HasFailure) ? Telegram.Status : Status;
+    private string ZapretServicesSummary => string.Join(" и ", new[] { Services.Discord ? "Discord" : null, Services.YouTube ? "YouTube" : null }.OfType<string>());
+    public string HelpActionLabel => Services.Telegram && Telegram.HasFailure ? Telegram.HelpActionLabel : help?.ActionLabel ?? "Повторить проверку";
+    public UiCommand ServicesCommand { get; }
+    public UiCommand HelpCommand { get; }
+
     public TelegramViewModel Telegram { get; }
     public AppUpdateViewModel AppUpdates { get; }
-    private int startupAttempts;
     public event Action<string, string>? Notify;
     public event Action? ExitReady;
     public ObservableCollection<string> Strategies { get; } = [AutomaticStrategy];
@@ -45,10 +69,10 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     public string GameFilterFeedback { get; private set => Set(ref field, value); } = "";
     private DateTimeOffset? lastSuccessfulCheck;
     private string? networkId;
-    public bool ShowRepair => IsProcessRunning || HasError;
+    public bool ShowRepair => IsProcessRunning || HasError || Services.Telegram && Telegram.HasFailure;
     public bool HasLastCheck => lastSuccessfulCheck != null;
     public string CurrentStrategy => IsProcessRunning ? runner.StrategyName ?? "Подбор…" : "—";
-    public string DiscordSummary => IsBusy ? "Discord · проверка…" : IsVerified ? "Discord · сервер отвечает" : IsProcessRunning ? "Discord · не проверен" : "Discord · выключен";
+    public string DiscordSummary => !Services.Discord ? "Discord · не выбран" : IsBusy ? "Discord · проверка…" : IsVerified ? "Discord · сервер отвечает" : IsProcessRunning ? "Discord · не проверен" : "Discord · выключен";
     public string ConnectionTime => runner.StartedAt is { } at && IsProcessRunning ? "Подключено " + Math.Max(0, (int)(DateTimeOffset.UtcNow - at).TotalMinutes) + " мин" : "Подключение не запущено";
     public string LastCheck => lastSuccessfulCheck is { } at ? "Успешная проверка · " + at.ToLocalTime().ToString("dd.MM HH:mm") : "Успешных проверок пока нет";
     public string NetworkSummary => networkId == null ? "Сеть не определена · обычный подбор" : preferences.NetworkStrategies.TryGetValue(networkId, out var strategy) ? "Для этой сети сохранён " + strategy : "Запомним альт после успешной проверки";
@@ -77,10 +101,15 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         gameIpSet = new GameIpSet(Path.Combine(Program.DataRoot, "GameFilter", "ipset-all.txt"), Log);
         runner = new WindowsRunner(Log, () => state.GameFilter, gameIpSet.FilePath);
         preferences = ConvenienceState.Load(preferencesPath);
+        preferences.Services ??= new() { Telegram = state.Telegram.StartWithApp };
+        preferences.Services.Validate();
+        UseDiscord = Services.Discord; UseYouTube = Services.YouTube; UseTelegram = Services.Telegram;
+        QuietNotifications = preferences.QuietNotifications;
         networkId = CurrentNetwork.Read();
+        ServicesCommand = new(SaveServicesAsync, () => CanConfigureServices && !exiting);
         ExportDiagnosticsCommand = new(ExportDiagnosticsAsync, () => !exiting);
-        RepairCommand = new(() => RunAsync(ct => ConnectAsync(ct, true)), () => !IsBusy && !exiting);
-        ConnectCommand = new(() => RunAsync(ct => ConnectAsync(ct)), () => !IsBusy && !exiting);
+        RepairCommand = new(() => ConnectSelectedAsync(true), () => !AnyBusy && !exiting);
+        ConnectCommand = new(() => ConnectSelectedAsync(), () => !AnyBusy && !exiting);
         UpdateCommand = new(() => RunAsync(ct => UpdateAsync(true, ct)), () => !IsBusy && !exiting);
         StopCommand = new(StopAsync, () => !exiting);
         AutostartCommand = new(() => RunAsync(async _ =>
@@ -91,6 +120,9 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         }), () => !IsBusy && ready && !exiting);
         GameFilterCommand = new(ApplyGameFilterAsync, () => !IsBusy && !runner.IsRunning && !exiting);
         Telegram = new(state, Save, Log);
+        HelpCommand = new(() => { if (Services.Telegram && Telegram.HasFailure) return Telegram.ResolveFailureAsync(); if (help?.OpenSettings == true) { SettingsRequested?.Invoke(); return Task.CompletedTask; } return ConnectSelectedAsync(true); }, () => !AnyBusy && !exiting);
+        Telegram.Notify += (title, text) => Notify?.Invoke(title, text);
+        Telegram.PropertyChanged += (_, _) => { Changed(null); RefreshCommands(); };
         AppUpdates = new(state, Log, app => RestartApp(app, false), app => RestartApp(app, true));
         AppUpdates.ShowWhatsNew = preferences.LastSeenAppVersion != AppUpdates.Version;
         AutoUpdateCommand = new(() => RunAsync(_ => { Save(); AppUpdates.SettingsChanged(); Log(state.AutoUpdate ? "Автообновление включено." : "Автообновление выключено."); return Task.CompletedTask; }), () => !IsBusy && !exiting);
@@ -121,8 +153,8 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     }
 
     internal DiagnosticReport CreateDiagnosticReport() => new(AppUpdater.RunningVersion, Environment.OSVersion.Version,
-        runner.IsRunning, IsVerified, Telegram.IsRunning, lastProbe?.Api.Success, lastProbe?.Gateway.Success, lastProbe?.Voice.Success,
-        lastSuccessfulCheck, Results.Count, lastError, Telegram.LastError, lastProbe?.YouTube.Site.Success, lastProbe?.YouTube.GoogleVideo.Success);
+        runner.IsRunning, IsVerified, Telegram.IsRunning, lastProbe?.Api.Skipped == true ? null : lastProbe?.Api.Success, lastProbe?.Gateway.Skipped == true ? null : lastProbe?.Gateway.Success, lastProbe?.Voice.Skipped == true ? null : lastProbe?.Voice.Success,
+        lastSuccessfulCheck, Results.Count, lastError, Telegram.LastError, lastProbe?.YouTube.Site.Skipped == true ? null : lastProbe?.YouTube.Site.Success, lastProbe?.YouTube.GoogleVideo.Skipped == true ? null : lastProbe?.YouTube.GoogleVideo.Success);
 
     private Task ExportDiagnosticsAsync()
     {
@@ -166,9 +198,9 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     public async Task InitializeAsync(bool startup, bool resumeDiscord = false, bool resumeTelegram = false)
     {
         var history = AppUpdates.LoadHistoryAsync();
-        var telegramInitialization = Telegram.InitializeAsync(resumeTelegram);
+        var telegramInitialization = Telegram.InitializeAsync(resumeTelegram || startup && Services.Telegram);
         var appUpdate = AppUpdates.TickAsync();
-        startupRetry = startup || resumeDiscord;
+        if ((startup && Services.UsesZapret) || resumeDiscord) recovery.Enable();
         await RunAsync(async ct =>
         {
             if (!state.AutostartConfigured)
@@ -185,42 +217,120 @@ internal sealed class MainViewModel : PresentationState, IDisposable
             }
             ready = true;
             RefreshPackage();
-            if (startup || resumeDiscord) { startupAttempts++; await ConnectAsync(ct); }
+            if (recovery.Wanted && Services.UsesZapret) await ConnectAsync(ct);
             await UpdateAsync(false, ct);
         });
         await Task.WhenAll(telegramInitialization, appUpdate, history);
     }
 
-    public Task TickAsync() => Task.WhenAll(TickDiscordAsync(), Telegram.TickAsync(), AppUpdates.TickAsync());
+    private Task SaveServicesAsync()
+    {
+        try
+        {
+            var next = new ServiceSelection { Discord = UseDiscord, YouTube = UseYouTube, Telegram = UseTelegram }.Validate();
+            var old = preferences.Services;
+            var alerts = preferences.QuietNotifications;
+            try { preferences.Services = next; preferences.QuietNotifications = QuietNotifications; preferences.Save(preferencesPath); }
+            catch { preferences.Services = old; preferences.QuietNotifications = alerts; throw; }
+            IsVerified = false; ShowServiceResults(null);
+            SelectionFeedback = "Сохранено. Общая кнопка подключает: " + SelectedServicesSummary;
+            Status = "Подключим выбранные сервисы: " + SelectedServicesSummary;
+            Changed(null);
+        }
+        catch (Exception ex) { SelectionFeedback = ex.Message; }
+        return Task.CompletedTask;
+    }
+
+    private async Task ConnectSelectedAsync(bool repair = false)
+    {
+        if (AnyBusy || exiting) return;
+        help = null; HasError = false;
+        if (Services.UsesZapret) recovery.Enable();
+        var telegram = Services.Telegram ? Telegram.StartRequestedAsync() : Task.CompletedTask;
+        var zapret = Services.UsesZapret ? RunAsync(ct => ConnectAsync(ct, repair)) : Task.CompletedTask;
+        await Task.WhenAll(telegram, zapret);
+        if (!Services.UsesZapret) Status = Telegram.Status;
+        Changed(null);
+    }
+
+    public void EnvironmentChanged()
+    {
+        if (exiting || disposed) return;
+        var now = DateTimeOffset.UtcNow;
+        environmentVersion++;
+        recovery.Invalidate(now);
+        Telegram.NetworkChanged(now);
+        IsVerified = false;
+        if (recovery.Wanted) SetStatus("Сеть изменилась или Windows вышла из сна. Проверим соединение через несколько секунд.");
+    }
+
+    public async Task TickAsync()
+    {
+        if (ticking || exiting || disposed) return;
+        ticking = true;
+        try { await Task.WhenAll(TickDiscordAsync(), Telegram.TickAsync(preferences.QuietNotifications), AppUpdates.TickAsync()); }
+        catch (Exception ex) { Log("Фоновая проверка: " + ex.GetType().Name); }
+        finally { ticking = false; }
+    }
 
     private async Task TickDiscordAsync()
     {
         var currentNetwork = CurrentNetwork.Read();
-        if (networkId != currentNetwork)
-        {
-            networkId = currentNetwork;
-            IsVerified = false;
-            if (runner.IsRunning) SetStatus("Сеть изменилась. Нажмите «Исправить подключение».");
-        }
+        if (networkId != currentNetwork) { networkId = currentNetwork; EnvironmentChanged(); }
         Changed(nameof(ConnectionTime)); Changed(nameof(NetworkSummary));
         if (IsBusy || exiting) return;
-        if (startupRetry && startupAttempts < 5 && NetworkInterface.GetIsNetworkAvailable())
+        var now = DateTimeOffset.UtcNow;
+        if (IsProcessRunning && !runner.IsRunning)
+        { IsVerified = false; recovery.Failed(now); SetStatus("Обход остановился. Попробуем восстановить подключение.", true); }
+        if (recovery.ShouldNotify(now, preferences.QuietNotifications))
+            Notify?.Invoke("Связь: соединение не восстановлено", help?.Message ?? "Откройте приложение и повторите проверку подключения.");
+        if (recovery.TryBegin(now, NetworkInterface.GetIsNetworkAvailable()))
         {
-            startupAttempts++;
-            Log("Повторное подключение после запуска Windows, попытка " + startupAttempts);
-            await RunAsync(ct => ConnectAsync(ct));
+            await RunAsync(async ct =>
+            {
+                var version = environmentVersion;
+                if (runner.IsRunning && await CheckCurrentAsync(ct)) return;
+                if (version != environmentVersion) return;
+                await ConnectAsync(ct, true);
+            });
             return;
         }
-        if (IsProcessRunning && !runner.IsRunning)
-        { IsVerified = false; SetStatus("Обход остановился. Нажмите «Подобрать и подключить».", true); }
+        if (runner.IsRunning && recovery.Wanted && !recovery.Pending && now >= nextHealthCheck)
+            await RunAsync(async ct => { await CheckCurrentAsync(ct); });
         if (state.AutoUpdate && DateTimeOffset.UtcNow >= nextUpdateAttempt)
             await RunAsync(ct => UpdateAsync(false, ct));
+    }
+
+    private async Task<bool> CheckCurrentAsync(CancellationToken ct)
+    {
+        var version = environmentVersion;
+        nextHealthCheck = DateTimeOffset.UtcNow.AddMinutes(1);
+        Uri? endpoint = null;
+        if (Services.Discord && state.VoiceServer != null) endpoint = VoiceEndpoint.Parse(state.VoiceServer);
+        if (Services.Discord && endpoint == null) return false;
+        var result = await new DiscordProbe(endpoint, Services).RunAsync(ct);
+        if (version != environmentVersion) return false;
+        lastProbe = result; ShowServiceResults(result);
+        IsVerified = result.Success && runner.IsRunning;
+        if (IsVerified)
+        {
+            recovery.Succeeded(); lastSuccessfulCheck = DateTimeOffset.UtcNow;
+            SetStatus("Проверки пройдены: " + ZapretServicesSummary);
+        }
+        else
+        {
+            recovery.Failed(DateTimeOffset.UtcNow);
+            help = ConnectionHelp.Describe(new IOException(), NetworkInterface.GetIsNetworkAvailable(), result);
+            SetStatus(help.Message, true);
+        }
+        return IsVerified;
     }
 
     public async void RequestExit()
     {
         if (exiting) return;
         exiting = true;
+        recovery.Stop();
         cancellation?.Cancel();
         try { await Task.WhenAll(Telegram.ExitAsync(), AppUpdates.ExitAsync()); }
         catch (Exception ex) { Log("Ошибка остановки Telegram: " + ex.Message); Telegram.Dispose(); }
@@ -245,7 +355,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
             Save();
             RefreshPackage();
             Log("Новый пакет подготовлен. Он станет активным только после успешных проверок.");
-            if (runner.IsRunning) await ConnectAsync(ct);
+            if (runner.IsRunning && recovery.Wanted) await ConnectAsync(ct);
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or System.Text.Json.JsonException)
         {
@@ -256,10 +366,11 @@ internal sealed class MainViewModel : PresentationState, IDisposable
 
     private async Task ConnectAsync(CancellationToken ct, bool repair = false)
     {
-        if (!NetworkInterface.GetIsNetworkAvailable()) throw new IOException("Нет активного сетевого подключения.");
+        if (!NetworkInterface.GetIsNetworkAvailable()) throw new ConnectionFailure("Нет сетевого подключения. Включите Wi-Fi или подключите кабель — повторим автоматически.");
         if (!runner.IsRunning) WindowsRunner.EnsureNoExternalProcess();
         networkId = CurrentNetwork.Read();
         var startedNetwork = networkId;
+        var startedVersion = environmentVersion;
         var preferred = networkId != null && preferences.NetworkStrategies.TryGetValue(networkId, out var saved) ? saved : state.LastStrategy;
         var manual = repair || SelectedStrategy == AutomaticStrategy ? null : SelectedStrategy;
         if (repair) Log("Восстановление: повторно проверяем все стратегии Discord и YouTube.");
@@ -269,10 +380,10 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         var package = pending ?? active ?? throw new IOException("Сначала нужно загрузить пакет zapret с GitHub.");
         if (state.GameFilter.Mode != GameFilterMode.Disabled) await gameIpSet.EnsureAsync(ct);
         if (pending != null && active != null) PackageStore.PrepareLists(pending.Root, active.Root);
-        var endpoint = GetVoiceEndpoint();
-        if (endpoint == null && state.VoiceServer != null && state.VoiceObservedAt > DateTimeOffset.UtcNow.AddDays(-7))
+        var endpoint = Services.Discord ? GetVoiceEndpoint() : null;
+        if (Services.Discord && endpoint == null && state.VoiceServer != null && state.VoiceObservedAt > DateTimeOffset.UtcNow.AddDays(-7))
             endpoint = VoiceEndpoint.Parse(state.VoiceServer);
-        if (endpoint == null)
+        if (Services.Discord && endpoint == null)
         {
             SetStatus("Откройте голосовой канал Discord: ждём адрес сервера…");
             Log("Нет адреса голосового сервера. Откройте Discord и попробуйте подключиться к голосовому каналу в течение минуты. Подтверждать звук не нужно.");
@@ -303,30 +414,32 @@ internal sealed class MainViewModel : PresentationState, IDisposable
                 }
             }
             finally { if (bootstrap) await runner.StopAsync(); }
-            if (endpoint == null) throw new IOException("Адрес не найден в журналах Discord. Попробуйте подключиться к каналу в настольном Discord или укажите адрес *.discord.media:порт в поле выше. Проверка голоса не выполнена.");
+            if (endpoint == null) throw new ConnectionFailure("Не найден адрес голосового сервера. Войдите в канал Discord или укажите адрес в настройках.", true);
         }
-        Log("Проверяем голосовой сервер: " + endpoint.Authority);
+        if (endpoint != null) Log("Проверяем голосовой сервер: " + endpoint.Authority);
         IsVerified = false;
         Results.Clear();
         lastProbe = null;
         SetStatus("Проверяем стратегии. Это может занять несколько минут…");
         var session = new ConnectionSession(runner, state, Save, Report, Log);
-        var selected = await session.ConnectAsync(active, pending, new DiscordProbe(endpoint).RunAsync, manual, ct, preferred);
+        var selected = await session.ConnectAsync(active, pending, new DiscordProbe(endpoint, Services).RunAsync, manual, ct, preferred);
         networkId = CurrentNetwork.Read();
-        if (startedNetwork != networkId)
+        if (startedNetwork != networkId || startedVersion != environmentVersion)
         {
             IsVerified = false;
-            SetStatus("Сеть изменилась во время проверки. Нажмите «Исправить подключение».");
+            recovery.Invalidate(DateTimeOffset.UtcNow);
+            SetStatus("Сеть изменилась во время проверки. Повторим проверку автоматически.");
             return;
         }
         if (NetworkProfiles.Remember(preferences, startedNetwork, networkId, selected.Name)) preferences.Save(preferencesPath);
         lastSuccessfulCheck = DateTimeOffset.UtcNow;
         IsVerified = true;
-        startupRetry = false;
-        SetStatus(selected.Name + " · Discord и YouTube отвечают");
-        Log("Два прохода проверок Discord и HTTPS YouTube прошли. Оставлена стратегия " + selected.Name);
+        recovery.Succeeded();
+        nextHealthCheck = DateTimeOffset.UtcNow.AddMinutes(1);
+        SetStatus(selected.Name + " · выбранные проверки пройдены");
+        Log("Два прохода выбранных проверок прошли. Оставлена стратегия " + selected.Name);
         RefreshPackage();
-        Notify?.Invoke("Связь: подключено", selected.Name + ": Discord и HTTPS YouTube отвечают");
+
     }
 
     private async Task RunAsync(Func<CancellationToken, Task> action)
@@ -337,14 +450,15 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         stopRequested = false;
         SetBusy(true);
         try { await action(operation.Token); }
-        catch (OperationCanceledException) { Log("Операция отменена."); }
+        catch (OperationCanceledException) { IsVerified = false; Log("Операция отменена."); }
         catch (Exception ex)
         {
             IsVerified = false;
             lastError = ex.HResult;
             Log(ex.Message);
-            SetStatus(runner.IsRunning ? "Предыдущий процесс работает; проверки не пройдены." : "Не подключено. Подробности — в журнале.", true);
-            Notify?.Invoke("Связь: требуется внимание", ex.Message[..Math.Min(ex.Message.Length, 220)]);
+            help = ConnectionHelp.Describe(ex, NetworkInterface.GetIsNetworkAvailable(), lastProbe);
+            recovery.Failed(DateTimeOffset.UtcNow);
+            SetStatus(help.Message, true);
         }
         finally
         {
@@ -362,7 +476,8 @@ internal sealed class MainViewModel : PresentationState, IDisposable
 
     private async Task StopAsync()
     {
-        startupRetry = false;
+        recovery.Stop();
+        await Telegram.StopRequestedAsync();
         if (cancellation != null) { stopRequested = true; cancellation.Cancel(); return; }
         await RunAsync(async _ =>
         {
@@ -423,7 +538,13 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         IsBusy = busy;
         IsProcessRunning = runner.IsRunning;
         if (!busy && (stopRequested || Api.Kind == CheckKind.Checking)) ShowServiceResults(null);
+        RefreshCommands();
+    }
+
+    private void RefreshCommands()
+    {
         RepairCommand.Refresh(); ConnectCommand.Refresh(); UpdateCommand.Refresh(); StopCommand.Refresh(); AutostartCommand.Refresh(); AutoUpdateCommand.Refresh(); GameFilterCommand.Refresh();
+        ServicesCommand.Refresh(); HelpCommand.Refresh();
     }
 
     private void SetStatus(string text, bool error = false)
@@ -433,7 +554,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         IsProcessRunning = runner.IsRunning;
         GameFilterCommand.Refresh();
         Changed(null);
-        if (error && !IsVerified) ShowServiceResults(null);
+
     }
 
     private void Log(string message)
@@ -459,6 +580,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     public void Dispose()
     {
         disposed = true;
+        recovery.Stop();
         cancellation?.Cancel();
         runner.Dispose();
         Telegram.Dispose();

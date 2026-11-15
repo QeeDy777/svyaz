@@ -19,6 +19,8 @@ void Reject(Action action, string name)
 }
 
 ConvenienceChecks.Run(Check);
+ServiceSelectionChecks.Run(Check);
+RecoveryChecks.Run(Check);
 IconChecks.Run(Check);
 TelegramChecks.Run(Check);
 AppUpdateChecks.Run(Check);

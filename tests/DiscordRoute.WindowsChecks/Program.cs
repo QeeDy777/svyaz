@@ -48,7 +48,7 @@ internal static class WindowsChecks
                 model.HasError = false;
                 Check(model.DiscordSummary.Contains("выключен") && model.Telegram.Summary.Contains("выключен"), "Separate service status starts disconnected");
                 Check(model.ConnectionTime.Contains("не запущено") && model.LastCheck.Contains("пока нет"), "No invented connection time or successful check");
-                Check(model.AppUpdates.CurrentNotes.Contains("0.8.0") && model.AppUpdates.EarlierNotes.Contains("0.6.1"), "Release history available offline");
+                Check(model.AppUpdates.CurrentNotes.Contains("0.9.0") && model.AppUpdates.EarlierNotes.Contains("0.6.1"), "Release history available offline");
                 model.Report(new("fixture", "unused"), new(new(true, "sensitive-sentinel"), new(true, "sensitive-sentinel"), new(false, "sensitive-sentinel"), new(new(true, "sensitive-sentinel"), new(false, "sensitive-sentinel"))), "Failed");
                 model.ShowServiceResults(null);
                 var report = model.CreateDiagnosticReport();
@@ -56,6 +56,7 @@ internal static class WindowsChecks
                 var network = CurrentNetwork.Read();
                 Check(network?.Length == 64, "Connected Windows CI network provides a hashed NLM identity");
                 Console.WriteLine("NLM profile detected: " + (network != null));
+                CheckServiceSelection(window, tabs, model);
                 UpdateNoticeChecks.Run(window, tabs, Check, name => SaveScreenshot(window, name));
                 Check(InstallerMaintenance.OwnTask("DiscordRoute-test", TaskXml(@"C:\App\Versions\abc\Связь.exe"), @"C:\App"), "owned autostart identified");
                 Check(!InstallerMaintenance.OwnTask("DiscordRoute-test", TaskXml(@"C:\App\Versions\abc\Связь.exe").Replace("</Actions>", "<ComHandler/></Actions>"), @"C:\App"), "multi-action tasks preserved");
@@ -115,6 +116,52 @@ internal static class WindowsChecks
         return null;
     }
 
+    private static void CheckServiceSelection(MainWindow window, TabControl tabs, MainViewModel model)
+    {
+        var preferences = Path.Combine(DiscordRoute.App.Program.DataRoot, "preferences.json");
+        var original = File.Exists(preferences) ? File.ReadAllBytes(preferences) : null;
+        var oldPort = model.Telegram.Port;
+        try
+        {
+            model.UseDiscord = false; model.UseYouTube = false; model.UseTelegram = true;
+            model.ServicesCommand.Execute(null);
+            Check(!model.Services.UsesZapret && model.Services.Telegram, "Telegram-only selection saved without enabling zapret");
+            tabs.SelectedIndex = 0; window.UpdateLayout();
+            Check(!((ContentControl)window.FindName("YouTubeCheck")).IsVisible, "Unselected YouTube check is hidden");
+            Check(!model.Heading.Contains("отвечают"), "Idle Telegram-only selection never claims success");
+            model.UseTelegram = false; model.ServicesCommand.Execute(null);
+            Check(model.Services.Telegram && model.SelectionFeedback.Contains("хотя бы"), "Empty selection preserves previous settings");
+            var alerts = 0;
+            model.Notify += (_, _) => alerts++;
+            model.Telegram.Port = "invalid";
+            model.ConnectCommand.Execute(null);
+            Check(model.Telegram.LastError != null && model.Telegram.Recovery.Wanted && !model.IsProcessRunning,
+                "Common connect reaches only selected Telegram and keeps failure actionable");
+            Check(alerts == 0 && model.Telegram.HasFailure, "Brief startup error is visible without a balloon");
+            Check(model.ConnectionStatus.Contains("порт") && model.Heading.Contains("внимание") && model.HelpActionLabel == "Открыть настройки",
+                "Selected Telegram failure is actionable on the common screen");
+            model.StopCommand.Execute(null);
+            Check(!model.Telegram.Recovery.Wanted && !model.ShowDisconnect, "Common disconnect cancels Telegram recovery even after failed start");
+            model.EnvironmentChanged();
+            Check(!model.ShowDisconnect, "Network change does not start manually disabled services");
+            model.UseYouTube = true; model.UseTelegram = false;
+            model.ServicesCommand.Execute(null);
+            Check(model.Services.YouTube && !model.Services.Discord && !model.Services.Telegram, "YouTube-only mode is independently selectable");
+            model.UseDiscord = true; model.ServicesCommand.Execute(null);
+            model.Telegram.Port = oldPort;
+            tabs.SelectedIndex = 2;
+            ((ScrollViewer)((TabItem)tabs.Items[2]).Content).ScrollToTop();
+            ((Expander)window.FindName("ReleaseHistory")).IsExpanded = false;
+            SaveScreenshot(window, "service-selection");
+        }
+        finally
+        {
+            model.Telegram.Port = oldPort;
+            if (original != null) File.WriteAllBytes(preferences, original);
+            else if (File.Exists(preferences)) File.Delete(preferences);
+        }
+    }
+
     private static async Task CheckProxyAsync()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
@@ -145,6 +192,12 @@ internal static class WindowsChecks
             Check(System.Diagnostics.Process.GetCurrentProcess().Modules.Cast<System.Diagnostics.ProcessModule>().Any(m => m.ModuleName == "python314.dll"),
                 "Python DLL is loaded inside the current process");
             Check(System.Diagnostics.Process.GetProcessesByName("TgWsProxy_windows").All(p => existing.Contains(p.Id)), "no separate TG WS Proxy process launched");
+            if (run == 0)
+            {
+                using var cancelProbe = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+                try { await runner.ProbeAsync(cancelProbe.Token); throw new Exception("Probe cancellation ignored"); }
+                catch (OperationCanceledException) { Check(runner.IsRunning, "Server probe cancellation preserves local proxy"); }
+            }
             await runner.StopAsync();
             Check(!runner.IsRunning, "embedded Telegram stopped");
             listener = new TcpListener(IPAddress.Loopback, port);

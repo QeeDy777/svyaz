@@ -11,11 +11,34 @@ internal sealed class TelegramRunner : IDisposable
     private bool initialized;
     private bool disposed;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    private sealed record EngineState(bool Alive, bool Ready, string? Error);
+    private sealed record EngineState(bool Alive, bool Ready, string? Error, string? Probe = null);
     private EngineState State => initialized
         ? JsonSerializer.Deserialize<EngineState>(TelegramPython.Call("status")!, Json) ?? throw new IOException("Нет состояния движка Telegram.")
         : new(false, false, null);
     public bool IsRunning => State.Alive;
+
+    public async Task<bool> ProbeAsync(CancellationToken ct)
+    {
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (!IsRunning) return false;
+            TelegramPython.Call("start_probe");
+            for (var attempt = 0; attempt < 150; attempt++)
+            {
+                await Task.Delay(100, ct).ConfigureAwait(false);
+                var status = State;
+                if (!status.Alive || status.Probe == "failed") return false;
+                if (status.Probe == "passed") return true;
+            }
+            return false;
+        }
+        finally
+        {
+            try { if (initialized) TelegramPython.Call("cancel_probe"); }
+            finally { gate.Release(); }
+        }
+    }
 
     public async Task StartAsync(string configuration, TelegramSettings settings, CancellationToken ct)
     {
@@ -28,7 +51,7 @@ internal sealed class TelegramRunner : IDisposable
             if (Mutex.TryOpenExisting(@"Local\TgWsProxy_SingleInstance", out var external))
             {
                 external.Dispose();
-                throw new IOException("Уже запущен отдельный TG WS Proxy. Завершите его через его трей.");
+                throw new ConnectionFailure("Уже запущен отдельный TG WS Proxy. Завершите его через его трей и повторите запуск.");
             }
             var listener = new TcpListener(IPAddress.Loopback, settings.Port);
             try { listener.Server.ExclusiveAddressUse = true; listener.Start(); }

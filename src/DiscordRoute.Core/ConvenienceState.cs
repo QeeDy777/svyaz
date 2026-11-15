@@ -6,6 +6,8 @@ namespace DiscordRoute.Core;
 public sealed class ConvenienceState
 {
     public Dictionary<string, string> NetworkStrategies { get; set; } = new();
+    public ServiceSelection? Services { get; set; }
+    public bool QuietNotifications { get; set; } = true;
     public string? LastSeenAppVersion { get; set; }
 
     public static ConvenienceState Load(string path)

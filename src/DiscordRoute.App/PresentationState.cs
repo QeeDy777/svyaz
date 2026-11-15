@@ -53,10 +53,10 @@ internal class PresentationState : ObservableState
         Gateway = Make("Gateway", "Соединение с Discord", result?.Gateway, checking);
         Voice = Make("Голосовой сервер", "Ответ сервера канала", result?.Voice, checking);
         YouTube = Make("YouTube · HTTPS", "Сайт и Googlevideo", result == null ? null :
-            new(result.YouTube.Success, result.YouTube.Detail + ". Воспроизведение видео не проверяется."), checking);
+            new(result.YouTube.Success, result.YouTube.Detail + ". Воспроизведение видео не проверяется.", result.YouTube.Site.Skipped), checking);
     }
     private static ServiceCheck Make(string name, string description, CheckResult? result, bool checking) =>
-        new(name, description, result == null ? checking ? CheckKind.Checking : CheckKind.Idle : result.Success ? CheckKind.Passed : CheckKind.Failed,
+        new(name, description, result?.Skipped == true ? CheckKind.Idle : result == null ? checking ? CheckKind.Checking : CheckKind.Idle : result.Success ? CheckKind.Passed : CheckKind.Failed,
             result?.Detail ?? (checking ? "Проверяем соединение" : "Результат появится после проверки"));
 }
 

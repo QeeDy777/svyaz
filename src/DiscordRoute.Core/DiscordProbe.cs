@@ -4,19 +4,22 @@ using System.Text.Json;
 
 namespace DiscordRoute.Core;
 
-public sealed record CheckResult(bool Success, string Detail);
+public sealed record CheckResult(bool Success, string Detail, bool Skipped = false);
 public sealed record ProbeResult(CheckResult Api, CheckResult Gateway, CheckResult Voice, YouTubeResult YouTube)
 {
-    public bool Success => Api.Success && Gateway.Success && Voice.Success && YouTube.Success;
+    public bool Success => new[] { Api, Gateway, Voice, YouTube.Site, YouTube.GoogleVideo }.All(c => c.Success || c.Skipped) &&
+        new[] { Api, Gateway, Voice, YouTube.Site, YouTube.GoogleVideo }.Any(c => !c.Skipped);
 }
 
-public sealed class DiscordProbe(Uri voiceEndpoint)
+public sealed class DiscordProbe(Uri? voiceEndpoint, ServiceSelection? selected = null)
 {
     public async Task<ProbeResult> RunAsync(CancellationToken ct)
     {
-        var voice = MeasureAsync(async token => await DiscordProtocol.ReadHelloAsync(voiceEndpoint, 8, token), ct);
-        var control = RunControlAsync(ct);
-        var youtube = YouTubeProbe.RunAsync(ct);
+        var services = selected ?? new();
+        var skipped = new CheckResult(false, "Не выбрано", true);
+        var voice = services.Discord ? MeasureAsync(async token => await DiscordProtocol.ReadHelloAsync(voiceEndpoint ?? throw new InvalidDataException("Нет адреса голосового сервера."), 8, token), ct) : Task.FromResult(skipped);
+        var control = services.Discord ? RunControlAsync(ct) : Task.FromResult((Api: skipped, Gateway: skipped));
+        var youtube = services.YouTube ? YouTubeProbe.RunAsync(ct) : Task.FromResult(new YouTubeResult(skipped, skipped));
         await Task.WhenAll(voice, control, youtube);
         var (api, gateway) = await control;
         return new(api, gateway, await voice, await youtube);

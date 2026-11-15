@@ -190,6 +190,69 @@ class EmbeddedChecks(unittest.TestCase):
                     reply += chunk
                 self.assertEqual(incoming.update(reply), packet)
 
+    def test_server_probe_through_engine_and_invalid_nonce(self):
+        valid = True
+        class ReplyDc:
+            def __init__(self):
+                self.dec = None
+                self.queue = asyncio.Queue()
+            async def send(self, data):
+                if self.dec is None:
+                    self.dec = Cipher(algorithms.AES(data[8:40]), modes.CTR(data[40:56])).encryptor()
+                    self.dec.update(bytes(64))
+                    reverse = data[8:56][::-1]
+                    self.enc = Cipher(algorithms.AES(reverse[:32]), modes.CTR(reverse[32:])).encryptor()
+                else:
+                    request = self.dec.update(data)
+                    assert request[24:28] == struct.pack('<I', 0xbe7e8ef1)
+                    nonce = request[28:44] if valid else bytes(16)
+                    body = struct.pack('<I', 0x05162463) + nonce + os.urandom(16) + bytes(20)
+                    message = struct.pack('<QQI', 0, 1, len(body)) + body
+                    await self.queue.put(self.enc.update(struct.pack('<I', len(message)) + message))
+            async def send_batch(self, frames):
+                for frame in frames:
+                    await self.send(frame)
+            async def recv(self):
+                return await self.queue.get()
+            async def close(self):
+                pass
+        async def connect(*args, **kwargs):
+            return ReplyDc()
+        with patch.object(host.engine.ws_pool, 'get', side_effect=connect):
+            host.start(self.raw)
+            self.until(lambda: json.loads(host.status())['ready'])
+            for expected in ['passed', 'failed']:
+                host.start_probe()
+                self.until(lambda: json.loads(host.status())['probe'] != 'checking')
+                self.assertEqual(json.loads(host.status())['probe'], expected)
+                valid = False
+            self.stop()
+            self.assert_port_released()
+
+    def test_probe_timeout_and_cancel_release_socket(self):
+        async def scenario():
+            closed = asyncio.Event()
+            async def silent(reader, writer):
+                try:
+                    await reader.read()
+                finally:
+                    writer.close()
+                    await writer.wait_closed()
+                    closed.set()
+            server = await asyncio.start_server(silent, '127.0.0.1', self.port)
+            host.configure(self.raw)
+            async with server:
+                self.assertFalse(await host._probe_server(.05))
+                await asyncio.wait_for(closed.wait(), 1)
+                closed.clear()
+                task = asyncio.create_task(host._probe_server())
+                await asyncio.sleep(.02)
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+                await asyncio.wait_for(closed.wait(), 1)
+        asyncio.run(scenario())
+
 
 if __name__ == '__main__':
     if '--stress' in sys.argv:
@@ -203,6 +266,6 @@ if __name__ == '__main__':
             if not result.wasSuccessful() or unraisable:
                 print(result.errors, result.failures, unraisable)
                 raise SystemExit(1)
-        print('240 checks passed; no leaked transports or unraisable cleanup errors')
+        print(f'{30 * result.testsRun} checks passed; no leaked transports or unraisable cleanup errors')
     else:
         unittest.main()
