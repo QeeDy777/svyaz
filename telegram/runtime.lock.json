@@ -30,8 +30,8 @@
     },
     {
       "kind": "wheel",
-      "url": "https://files.pythonhosted.org/packages/e9/5a/ac0f49e48063ab4255d9e3b79f5def51697fce1a95ea1370f03dc9db76f6/cryptography-46.0.5-cp311-abi3-win_amd64.whl",
-      "sha256": "38946c54b16c885c72c4f59846be9743d699eee2b69b6988e0a00a01f46a61a4"
+      "url": "https://files.pythonhosted.org/packages/9a/4f/adfc442765721292fff86d314ce385d3249d22db42295c0dd057727b60f3/cryptography-50.0.2-cp311-abi3-win_amd64.whl",
+      "sha256": "7afa5a6602a9f29af1f3a2965f831bae7c9d5d597b7cbb716d41ab3b7d89879c"
     },
     {
       "kind": "wheel",
