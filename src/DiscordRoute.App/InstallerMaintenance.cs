@@ -67,7 +67,9 @@ internal static class InstallerMaintenance
     {
         if (!name.StartsWith("DiscordRoute-", StringComparison.Ordinal)) return false;
         XNamespace ns = "http://schemas.microsoft.com/windows/2004/02/mit/task";
-        var commands = XDocument.Parse(xml).Descendants(ns + "Command").Select(x => x.Value).ToArray();
+        var actions = XDocument.Parse(xml).Descendants(ns + "Actions").Elements().ToArray();
+        if (actions.Length != 1 || actions[0].Name != ns + "Exec") return false;
+        var commands = actions[0].Elements(ns + "Command").Select(x => x.Value).ToArray();
         var prefix = Path.GetFullPath(Path.Combine(root, "Versions")) + Path.DirectorySeparatorChar;
         return commands.Length == 1 && Path.GetFullPath(commands[0]).StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
             && Path.GetFileName(commands[0]).Equals("Связь.exe", StringComparison.OrdinalIgnoreCase);

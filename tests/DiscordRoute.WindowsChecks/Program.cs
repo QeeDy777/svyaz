@@ -48,6 +48,7 @@ internal static class WindowsChecks
                     encoder.Save(screenshot);
                 }
                 Check(InstallerMaintenance.OwnTask("DiscordRoute-test", TaskXml(@"C:\App\Versions\abc\Связь.exe"), @"C:\App"), "owned autostart identified");
+                Check(!InstallerMaintenance.OwnTask("DiscordRoute-test", TaskXml(@"C:\App\Versions\abc\Связь.exe").Replace("</Actions>", "<ComHandler/></Actions>"), @"C:\App"), "multi-action tasks preserved");
                 Check(!InstallerMaintenance.OwnTask("Other", TaskXml(@"C:\App\Versions\abc\Связь.exe"), @"C:\App"), "other task name preserved");
                 Check(!InstallerMaintenance.OwnTask("DiscordRoute-test", TaskXml(@"C:\App\Versions\..\foreign\Связь.exe"), @"C:\App"), "task path outside versions preserved");
                 Check(!InstallerMaintenance.OwnTask("DiscordRoute-test", TaskXml(@"C:\App\Versions-other\Связь.exe"), @"C:\App"), "sibling path preserved");
