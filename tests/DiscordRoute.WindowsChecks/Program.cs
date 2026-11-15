@@ -25,25 +25,32 @@ internal static class WindowsChecks
                 Check(window.Icon != null, "ICO decoded by WPF");
                 var tabs = Find<TabControl>(window) ?? throw new Exception("Tabs not found");
                 Check(tabs.Items.Count == 4, "Discord, Telegram, settings and journal tabs");
-                tabs.SelectedIndex = 2;
                 window.Show();
-                window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
-                var content = (FrameworkElement)window.Content;
-                content.UpdateLayout();
-                var bitmap = new RenderTargetBitmap(440, 680, 96, 96, PixelFormats.Pbgra32);
-                var visual = new DrawingVisual();
-                using (var drawing = visual.RenderOpen())
+                foreach (var (index, name) in new[] { (0, "discord"), (1, "telegram"), (2, "settings"), (3, "journal") })
                 {
-                    drawing.DrawRectangle(window.Background ?? Brushes.White, null, new Rect(0, 0, 440, 680));
-                    drawing.DrawRectangle(new VisualBrush(content), null, new Rect(0, 0, content.ActualWidth, content.ActualHeight));
+                    tabs.SelectedIndex = index;
+                    window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                    var content = (FrameworkElement)window.Content;
+                    content.UpdateLayout();
+                    Check(((TabItem)tabs.Items[index]).ActualWidth > 40, name + " tab visible");
+                    var bitmap = new RenderTargetBitmap(440, 680, 96, 96, PixelFormats.Pbgra32);
+                    var visual = new DrawingVisual();
+                    using (var drawing = visual.RenderOpen())
+                    {
+                        drawing.DrawRectangle(window.Background ?? Brushes.White, null, new Rect(0, 0, 440, 680));
+                        drawing.DrawRectangle(new VisualBrush(content), null, new Rect(0, 0, content.ActualWidth, content.ActualHeight));
+                    }
+                    bitmap.Render(visual);
+                    var encoder = new PngBitmapEncoder();
+                    encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                    Directory.CreateDirectory("dist");
+                    using var screenshot = File.Create($"dist/{name}-window.png");
+                    encoder.Save(screenshot);
                 }
-                bitmap.Render(visual);
-                var encoder = new PngBitmapEncoder();
-                encoder.Frames.Add(BitmapFrame.Create(bitmap));
-                Directory.CreateDirectory("dist");
-                using var screenshot = File.Create("dist/settings-window.png");
-                encoder.Save(screenshot);
-                Console.WriteLine("PASS: Settings and self-update controls rendered");
+                Check(InstallerMaintenance.OwnTask("DiscordRoute-test", TaskXml(@"C:\App\Versions\abc\Связь.exe"), @"C:\App"), "owned autostart identified");
+                Check(!InstallerMaintenance.OwnTask("Other", TaskXml(@"C:\App\Versions\abc\Связь.exe"), @"C:\App"), "other task name preserved");
+                Check(!InstallerMaintenance.OwnTask("DiscordRoute-test", TaskXml(@"C:\App\Versions\..\foreign\Связь.exe"), @"C:\App"), "task path outside versions preserved");
+                Check(!InstallerMaintenance.OwnTask("DiscordRoute-test", TaskXml(@"C:\App\Versions-other\Связь.exe"), @"C:\App"), "sibling path preserved");
             }
             finally { ((MainViewModel)window.DataContext).Dispose(); }
             Task.Run(() => CheckProxyAsync(args.Take(2).ToArray())).GetAwaiter().GetResult();
@@ -54,6 +61,8 @@ internal static class WindowsChecks
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
         finally { app.Shutdown(); }
     }
+
+    private static string TaskXml(string path) => "<Task xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\"><Actions><Exec><Command>" + path + "</Command></Exec></Actions></Task>";
 
     private static T? Find<T>(DependencyObject parent) where T : DependencyObject
     {

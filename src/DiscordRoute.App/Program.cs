@@ -15,6 +15,7 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        var maintenance = args.Length == 1 && args[0] is "--install" or "--uninstall";
         var readyIndex = Array.IndexOf(args, "--update-ready");
         var readyToken = readyIndex >= 0 && readyIndex + 1 < args.Length ? args[readyIndex + 1] : null;
         var resume = args.Where(a => a is "--startup" or "--resume-discord" or "--resume-telegram").ToArray();
@@ -25,12 +26,19 @@ internal static class Program
             {
                 if (!created)
                 {
+                    if (maintenance) { Environment.ExitCode = 1; return; }
                     if (readyToken == null) MessageBox.Show("«Связь» уже запущена. Откройте приложение через значок в трее.", "Связь");
                     return;
                 }
                 try
                 {
                     Directory.CreateDirectory(DataRoot);
+                    if (maintenance)
+                    {
+                        if (args[0] == "--install") InstallerMaintenance.Install();
+                        else InstallerMaintenance.Uninstall();
+                        return;
+                    }
                     if (readyToken == null && !args.Contains("--skip-self-update"))
                     {
                         try
@@ -80,6 +88,7 @@ internal static class Program
         {
             var logPath = StartupFailure.Save(ex, DataRoot) ?? StartupFailure.Save(ex,
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Svyaz"));
+            if (maintenance) { Environment.ExitCode = 1; return; }
             if (readyToken != null) return;
             var cause = ex.GetBaseException();
             var details = logPath == null ? "Журнал ошибки сохранить не удалось." : "Подробности: " + logPath;

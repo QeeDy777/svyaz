@@ -2,3 +2,5 @@
 **/obj/
 dist/
 .DS_Store
+
+*_wpftmp.csproj

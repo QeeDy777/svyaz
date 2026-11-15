@@ -1,7 +1,7 @@
 name: Windows checks
 on:
   push:
-    branches: [main, feature/self-update]
+    branches: [main, feature/installer-design]
   pull_request:
   workflow_dispatch:
 
@@ -33,11 +33,34 @@ jobs:
       - name: Build portable archive
         shell: pwsh
         run: ./build.ps1
+      - name: Install Inno Setup compiler
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $release = gh api repos/jrsoftware/issrc/releases/tags/is-6_7_3 | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot fetch Inno Setup release' }
+          $asset = $release.assets | Where-Object name -eq 'innosetup-6.7.3.exe'
+          gh release download is-6_7_3 --repo jrsoftware/issrc --pattern innosetup-6.7.3.exe --dir $env:RUNNER_TEMP
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot download Inno Setup' }
+          $file = Join-Path $env:RUNNER_TEMP 'innosetup-6.7.3.exe'
+          $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($asset.digest -ne "sha256:$hash") { throw 'Inno Setup checksum mismatch' }
+          $signature = Get-AuthenticodeSignature $file
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'CN=Pyrsys B\.V\.') { throw 'Inno Setup publisher not verified' }
+          $process = Start-Process $file -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$env:RUNNER_TEMP/InnoSetup`"") -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw 'Cannot install Inno Setup' }
+      - name: Build installer
+        shell: pwsh
+        run: ./scripts/build-installer.ps1 -IsccPath "$env:RUNNER_TEMP/InnoSetup/ISCC.exe"
       - name: WPF, Telegram and self-update
         shell: pwsh
         run: |
           $version = ([xml](Get-Content Directory.Build.props -Raw)).Project.PropertyGroup.Version
           dotnet run --project tests/DiscordRoute.WindowsChecks -- dist/telegram-release.json dist/telegram-component/TgWsProxy_windows.exe "dist/Svyaz-$version-win-x64-unsigned.zip"
+      - name: Installer lifecycle
+        shell: pwsh
+        run: ./tests/Installer.Checks.ps1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -45,3 +68,5 @@ jobs:
           path: |
             dist/*-window.png
             dist/Svyaz-*.zip*
+            dist/Svyaz-*-setup-*.exe*
+            dist/installer-*.log

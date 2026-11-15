@@ -5,92 +5,87 @@
     Title="Связь" Width="440" Height="680" ResizeMode="CanMinimize" Icon="Assets/app.ico"
     WindowStartupLocation="CenterScreen" FontFamily="Segoe UI Variable, Segoe UI"
     FontSize="14" UseLayoutRounding="True" Language="ru-RU"
-    Background="{DynamicResource ApplicationBackgroundBrush}"
-    Foreground="{DynamicResource TextFillColorPrimaryBrush}">
+    Background="{DynamicResource BrandPaper}"
+    Foreground="{DynamicResource BrandInk}">
     <Window.Resources>
         <local:EmptyVisibilityConverter x:Key="EmptyVisibility"/>
         <Style x:Key="PowerButton" TargetType="Button">
             <Setter Property="Width" Value="112"/>
             <Setter Property="Height" Value="112"/>
-            <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}"/>
-            <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource ControlStrongStrokeColorDefaultBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource BrandGreen}"/>
+            <Setter Property="Foreground" Value="{DynamicResource BrandWhite}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BrandGreen}"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Grid>
+                            <Ellipse Margin="-9" Fill="{DynamicResource BrandMint}"/>
                             <Ellipse x:Name="Surface" Fill="{TemplateBinding Background}" Stroke="{TemplateBinding BorderBrush}" StrokeThickness="1.5"/>
                             <Path Width="42" Height="46" Stretch="Uniform" Data="M 20,0 L 20,23 M 8,8 A 20,20 0 1 0 32,8"
                                 Stroke="{TemplateBinding Foreground}" StrokeThickness="2.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
-                            <Ellipse x:Name="FocusRing" Margin="-6" Stroke="{DynamicResource KeyboardFocusBorderColorBrush}" StrokeThickness="2" Visibility="Collapsed"/>
+                            <Ellipse x:Name="FocusRing" Margin="-6" Stroke="{DynamicResource BrandGreen}" StrokeThickness="2" Visibility="Collapsed"/>
                         </Grid>
                         <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Fill" Value="{DynamicResource SubtleFillColorSecondaryBrush}"/></Trigger>
-                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Fill" Value="{DynamicResource SubtleFillColorTertiaryBrush}"/></Trigger>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Fill" Value="{DynamicResource BrandHover}"/></Trigger>
+                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Fill" Value="{DynamicResource BrandInk}"/></Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="FocusRing" Property="Visibility" Value="Visible"/></Trigger>
                             <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45"/></Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding ShowDisconnect}" Value="True">
-                    <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}"/>
-                    <Setter Property="BorderBrush" Value="{DynamicResource AccentTextFillColorPrimaryBrush}"/>
-                </DataTrigger>
-            </Style.Triggers>
         </Style>
         <DataTemplate DataType="{x:Type local:ServiceCheck}">
-            <StackPanel HorizontalAlignment="Center" ToolTip="{Binding Detail}">
-                <TextBlock Text="{Binding Name}" HorizontalAlignment="Center" FontSize="12" Margin="0,0,0,7" Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
-                <TextBlock Text="{Binding Label}" HorizontalAlignment="Center" FontSize="13" FontWeight="SemiBold">
+            <Grid ToolTip="{Binding Detail}" Margin="0,9">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding Name}" FontSize="13"/>
+                <TextBlock Grid.Column="1" Text="{Binding Label}" FontSize="12">
                     <TextBlock.Style>
                         <Style TargetType="TextBlock">
-                            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource BrandMuted}"/>
                             <Style.Triggers>
-                                <DataTrigger Binding="{Binding Kind}" Value="Passed"><Setter Property="Foreground" Value="{DynamicResource SystemFillColorSuccessBrush}"/></DataTrigger>
-                                <DataTrigger Binding="{Binding Kind}" Value="Failed"><Setter Property="Foreground" Value="{DynamicResource SystemFillColorCriticalBrush}"/></DataTrigger>
-                                <DataTrigger Binding="{Binding Kind}" Value="Checking"><Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}"/></DataTrigger>
+                                <DataTrigger Binding="{Binding Kind}" Value="Passed"><Setter Property="Foreground" Value="{DynamicResource BrandGreen}"/></DataTrigger>
+                                <DataTrigger Binding="{Binding Kind}" Value="Failed"><Setter Property="Foreground" Value="{DynamicResource BrandError}"/></DataTrigger>
                             </Style.Triggers>
                         </Style>
                     </TextBlock.Style>
                 </TextBlock>
-            </StackPanel>
+            </Grid>
         </DataTemplate>
         <Style x:Key="FlatSection" TargetType="Border">
             <Setter Property="Padding" Value="0,0,0,24"/>
             <Setter Property="BorderThickness" Value="0,0,0,1"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource DividerStrokeColorDefaultBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BrandLine}"/>
         </Style>
     </Window.Resources>
-    <Grid Margin="28,20,28,18" MaxWidth="660">
+    <Grid Margin="28,24,28,18" MaxWidth="660">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <Grid Margin="4,0,4,16">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-            <TextBlock Text="Связь" FontSize="20" FontWeight="SemiBold"/>
+            <TextBlock Text="Связь" FontSize="24" FontWeight="SemiBold"/>
             <TextBlock Grid.Column="1" Text="{Binding AppUpdates.Version}" Style="{StaticResource SecondaryText}" FontSize="12" VerticalAlignment="Center"/>
         </Grid>
         <TabControl Grid.Row="1" BorderThickness="0" Background="Transparent" HorizontalContentAlignment="Stretch">
-            <TabItem Header="Discord" Padding="10,10" AutomationProperties.Name="Подключение Discord">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="8,12,8,8">
+            <TabItem Header="Discord" Padding="10,12" AutomationProperties.Name="Подключение Discord">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="8,20,8,8">
                     <StackPanel>
-                        <TextBlock Text="{Binding Heading}" FontSize="26" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" Margin="0,0,0,8"/>
+                        <TextBlock Text="{Binding Heading}" FontSize="25" FontWeight="Medium" TextAlignment="Center" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" Margin="0,0,0,8"/>
                         <TextBlock Text="{Binding Status}" Style="{StaticResource SecondaryText}" TextAlignment="Center" LineHeight="21" MinHeight="44"/>
-                        <Grid Margin="0,16,0,12" HorizontalAlignment="Center">
+                        <Grid Margin="0,22,0,22" HorizontalAlignment="Center">
                             <Button Style="{StaticResource PowerButton}" Command="{Binding PrimaryCommand}" AutomationProperties.Name="{Binding PrimaryActionLabel}" ToolTip="{Binding PrimaryActionLabel}"/>
                         </Grid>
                         <TextBlock Text="{Binding PrimaryActionLabel}" TextAlignment="Center" FontWeight="SemiBold" Margin="0,0,0,12"/>
-                        <Grid Height="3" Margin="60,0,60,20">
+                        <Grid Height="3" Margin="60,0,60,8">
                             <ProgressBar Value="100" IsIndeterminate="{DynamicResource {x:Static SystemParameters.ClientAreaAnimationKey}}"
                                 Visibility="{Binding IsBusy, Converter={StaticResource VisibleIfTrue}}" AutomationProperties.Name="Выполняется операция"/>
                         </Grid>
-                        <UniformGrid Columns="3" Margin="0,0,0,20">
+                        <StackPanel Margin="0,0,0,14">
                             <ContentControl Content="{Binding Api}"/>
                             <ContentControl Content="{Binding Gateway}"/>
                             <ContentControl Content="{Binding Voice}"/>
-                        </UniformGrid>
-                        <Border BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" Padding="0,16,0,0">
+                        </StackPanel>
+                        <Border BorderBrush="{DynamicResource BrandLine}" BorderThickness="0,1,0,0" Padding="0,16,0,0">
                             <Expander Header="История проверок" HorizontalContentAlignment="Stretch">
                                 <StackPanel Margin="0,16,0,0">
                                     <TextBlock Text="После подключения здесь появятся результаты подбора." Style="{StaticResource SecondaryText}" Margin="0,0,0,12"
@@ -98,7 +93,7 @@
                                     <ItemsControl ItemsSource="{Binding Results}" AutomationProperties.Name="Результаты проверки стратегий">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Border BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Padding="0,10">
+                                                <Border BorderBrush="{DynamicResource BrandLine}" BorderThickness="0,0,0,1" Padding="0,10">
                                                     <StackPanel>
                                                         <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap"/>
                                                         <TextBlock Text="{Binding Outcome}" TextWrapping="Wrap" Margin="0,4,0,8"/>
@@ -116,15 +111,15 @@
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
-            <TabItem Header="Telegram" Padding="10,10" AutomationProperties.Name="Telegram">
+            <TabItem Header="Telegram" Padding="10,12" AutomationProperties.Name="Telegram">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8,20,8,8">
                     <StackPanel DataContext="{Binding Telegram}">
                         <TextBlock Text="Telegram" FontSize="28" FontWeight="SemiBold" Margin="0,0,0,10"/>
                         <TextBlock Text="Локальный прокси Flowseal" Style="{StaticResource SecondaryText}" Margin="0,0,0,20"/>
                         <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,16" AutomationProperties.LiveSetting="Polite"/>
                         <Button Content="{Binding PrimaryLabel}" Command="{Binding PrimaryCommand}" Padding="18,12" HorizontalAlignment="Stretch" Margin="0,0,0,12"/>
-                        <Button Content="Открыть в Telegram" Command="{Binding OpenCommand}" Padding="18,10" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
-                        <Button Content="Скопировать ссылку" Command="{Binding CopyCommand}" Padding="18,10" HorizontalAlignment="Stretch" Margin="0,0,0,16"/>
+                        <Button Style="{StaticResource QuietButton}" Content="Открыть в Telegram" Command="{Binding OpenCommand}" Padding="18,10" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+                        <Button Style="{StaticResource QuietButton}" Content="Скопировать ссылку" Command="{Binding CopyCommand}" Padding="18,10" HorizontalAlignment="Stretch" Margin="0,0,0,16"/>
                         <TextBlock Text="{Binding Endpoint}" Style="{StaticResource SecondaryText}"/>
                         <TextBlock Text="{Binding Version}" Style="{StaticResource SecondaryText}" Margin="0,4,0,20"/>
                         <Expander Header="Настройки Telegram" HorizontalContentAlignment="Stretch" Margin="0,0,0,20">
@@ -133,8 +128,8 @@
                                     <Label Content="Локальный порт" Target="{Binding ElementName=TelegramPort}" Padding="0" Margin="0,0,0,6"/>
                                     <TextBox x:Name="TelegramPort" Text="{Binding Port, UpdateSourceTrigger=PropertyChanged}" MaxLength="5" MinHeight="38" AutomationProperties.Name="Локальный порт Telegram"/>
                                     <CheckBox Content="Запускать вместе со «Связью»" IsChecked="{Binding StartWithApp}" Margin="0,16,0,16"/>
-                                    <Button Content="Сохранить настройки" Command="{Binding SaveCommand}" Padding="18,10" HorizontalAlignment="Left" Margin="0,0,0,12"/>
-                                    <Button Content="Загрузить / обновить компонент" Command="{Binding UpdateCommand}" Padding="18,10" HorizontalAlignment="Left"/>
+                                    <Button Style="{StaticResource QuietButton}" Content="Сохранить настройки" Command="{Binding SaveCommand}" Padding="18,10" HorizontalAlignment="Left" Margin="0,0,0,12"/>
+                                    <Button Style="{StaticResource QuietButton}" Content="Загрузить / обновить компонент" Command="{Binding UpdateCommand}" Padding="18,10" HorizontalAlignment="Left"/>
                                 </StackPanel>
                                 <TextBlock Text="Перед изменением настроек остановите прокси. Автообновление использует общий флажок в настройках и не прерывает работающий Telegram-прокси." Style="{StaticResource SecondaryText}" Margin="0,12,0,0"/>
                             </StackPanel>
@@ -144,7 +139,7 @@
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
-            <TabItem Header="Настройки" Padding="10,10" AutomationProperties.Name="Настройки">
+            <TabItem Header="Настройки" Padding="10,12" AutomationProperties.Name="Настройки">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8,20,8,8">
                     <StackPanel>
                         <TextBlock Text="Настройки" FontSize="28" FontWeight="SemiBold" Margin="0,0,0,22"/>
@@ -155,14 +150,14 @@
                                 <TextBlock Text="Подключение начнётся через 15 секунд после входа. Приложение останется в трее." Style="{StaticResource SecondaryText}" Margin="28,0,0,22"/>
                                 <CheckBox Content="Обновлять «Связь» и компоненты" IsChecked="{Binding AutoUpdateEnabled}" Command="{Binding AutoUpdateCommand}" Margin="0,0,0,8"/>
                                 <TextBlock Text="Проверка каждые 6 часов. «Связь» скачивается в фоне и обновляется при следующем запуске. Telegram — только при остановленном прокси." Style="{StaticResource SecondaryText}" Margin="28,0,0,16"/>
-                                <Button Content="Обновить альты" Command="{Binding UpdateCommand}" HorizontalAlignment="Left" Padding="18,10"/>
+                                <Button Style="{StaticResource QuietButton}" Content="Обновить альты" Command="{Binding UpdateCommand}" HorizontalAlignment="Left" Padding="18,10"/>
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource FlatSection}" Margin="0,0,0,16" DataContext="{Binding AppUpdates}">
                             <StackPanel>
                                 <TextBlock Text="Обновление «Связи»" Style="{StaticResource SectionTitle}"/>
                                 <TextBlock Text="{Binding Status}" Style="{StaticResource SecondaryText}" AutomationProperties.LiveSetting="Polite" Margin="0,0,0,12"/>
-                                <Button Content="Проверить новую версию" Command="{Binding CheckCommand}" HorizontalAlignment="Left" Padding="18,10" Margin="0,0,0,8"/>
+                                <Button Style="{StaticResource QuietButton}" Content="Проверить новую версию" Command="{Binding CheckCommand}" HorizontalAlignment="Left" Padding="18,10" Margin="0,0,0,8"/>
                                 <Button Content="Обновить и перезапустить" Command="{Binding RestartCommand}" HorizontalAlignment="Left" Padding="18,10"/>
                                 <TextBlock Text="Перезапуск кратко прервёт подключения. Предыдущая версия и настройки сохраняются." Style="{StaticResource SecondaryText}" Margin="0,12,0,0"/>
                             </StackPanel>
@@ -182,7 +177,7 @@
                                         <TextBlock Text="По умолчанию: 1024–65535. Можно указать несколько портов и диапазонов через запятую." Style="{StaticResource SecondaryText}" Margin="0,8,0,0"/>
                                     </StackPanel>
                                 </Expander>
-                                <Button Content="Сохранить Game Filter" Command="{Binding GameFilterCommand}" HorizontalAlignment="Left" Padding="18,10"/>
+                                <Button Style="{StaticResource QuietButton}" Content="Сохранить Game Filter" Command="{Binding GameFilterCommand}" HorizontalAlignment="Left" Padding="18,10"/>
                                 <TextBlock Text="{Binding GameFilterFeedback}" TextWrapping="Wrap" Margin="0,8,0,0" AutomationProperties.LiveSetting="Polite"/>
                                 <TextBlock Text="{Binding GameFilterHint}" Style="{StaticResource SecondaryText}" Margin="0,8,0,0"/>
                                 <TextBlock Text="Обрабатывает выбранные порты для сетей из IPSet Flowseal. Работу конкретной игры нужно проверить в игре." Style="{StaticResource SecondaryText}" Margin="0,8,0,0"/>
@@ -202,7 +197,7 @@
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
-            <TabItem Header="Журнал" Padding="10,10" AutomationProperties.Name="Журнал">
+            <TabItem Header="Журнал" Padding="10,12" AutomationProperties.Name="Журнал">
                 <Grid Margin="8,20,8,8">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                     <TextBlock Text="Журнал работы" FontSize="28" FontWeight="SemiBold" Margin="0,0,0,12"/>
