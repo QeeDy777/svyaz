@@ -11,7 +11,7 @@ using DiscordRoute.Core;
 internal static class WindowsChecks
 {
     [STAThread]
-    private static int Main()
+    private static int Main(string[] args)
     {
         var app = new App();
         try
@@ -39,7 +39,7 @@ internal static class WindowsChecks
                 Console.WriteLine("PASS: Telegram tab rendered");
             }
             finally { ((MainViewModel)window.DataContext).Dispose(); }
-            Task.Run(CheckProxyAsync).GetAwaiter().GetResult();
+            Task.Run(() => CheckProxyAsync(args)).GetAwaiter().GetResult();
             Console.WriteLine("Windows checks passed. Telegram messages/calls were not tested.");
             return 0;
         }
@@ -55,14 +55,17 @@ internal static class WindowsChecks
         return null;
     }
 
-    private static async Task CheckProxyAsync()
+    private static async Task CheckProxyAsync(string[] args)
     {
         var root = Path.Combine(Path.GetTempPath(), "svyaz-windows-" + Guid.NewGuid().ToString("N"));
         try
         {
             var store = new TelegramPackageStore(root, Console.WriteLine);
             using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(4));
-            var package = await store.StageLatestAsync(null, timeout.Token) ?? throw new Exception("Missing package");
+            if (args.Length != 0 && args.Length != 2) throw new ArgumentException("Expected release JSON and official EXE paths");
+            var package = args.Length == 2
+                ? store.Install(TelegramPackageStore.ParseRelease(File.ReadAllText(args[0])), File.ReadAllBytes(args[1]))
+                : await store.StageLatestAsync(null, timeout.Token) ?? throw new Exception("Missing package");
             var listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Server.ExclusiveAddressUse = true;
             listener.Start();
