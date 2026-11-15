@@ -40,7 +40,7 @@
             <Setter Property="Background" Value="{DynamicResource BrandPaper}"/>
             <Setter Property="Foreground" Value="{DynamicResource BrandInk}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource BrandLine}"/>
-            <Style.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="{DynamicResource BrandWhite}"/></Trigger></Style.Triggers>
+            <Style.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="{DynamicResource BrandWhite}"/></Trigger><Trigger Property="IsPressed" Value="True"><Setter Property="Foreground" Value="{DynamicResource BrandWhite}"/></Trigger></Style.Triggers>
         </Style>
         <Style TargetType="TabItem">
             <Setter Property="Foreground" Value="{DynamicResource BrandMuted}"/>
@@ -67,6 +67,49 @@
                             <TabPanel IsItemsHost="True" KeyboardNavigation.TabIndex="1"/>
                         </Border>
                         <ContentPresenter Grid.Row="1" x:Name="PART_SelectedContentHost" ContentSource="SelectedContent" Margin="0,8,0,0"/>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value></Setter>
+        </Style>
+        <Style x:Key="ScrollPageButton" TargetType="RepeatButton">
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style x:Key="PageScrollBar" TargetType="ScrollBar">
+            <Setter Property="Width" Value="16"/>
+            <Setter Property="Template"><Setter.Value>
+                <ControlTemplate TargetType="ScrollBar">
+                    <Track x:Name="PART_Track" Orientation="Vertical" IsDirectionReversed="True">
+                        <Track.DecreaseRepeatButton><RepeatButton Style="{StaticResource ScrollPageButton}" Command="ScrollBar.PageUpCommand"/></Track.DecreaseRepeatButton>
+                        <Track.IncreaseRepeatButton><RepeatButton Style="{StaticResource ScrollPageButton}" Command="ScrollBar.PageDownCommand"/></Track.IncreaseRepeatButton>
+                        <Track.Thumb>
+                            <Thumb MinHeight="24">
+                                <Thumb.Template><ControlTemplate TargetType="Thumb">
+                                    <Border Background="Transparent"><Border x:Name="Handle" Margin="5,0" CornerRadius="3" Background="{DynamicResource BrandMuted}"/></Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Handle" Property="Background" Value="{DynamicResource BrandGreen}"/></Trigger>
+                                        <Trigger Property="IsDragging" Value="True"><Setter TargetName="Handle" Property="Background" Value="{DynamicResource BrandGreen}"/></Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate></Thumb.Template>
+                            </Thumb>
+                        </Track.Thumb>
+                    </Track>
+                </ControlTemplate>
+            </Setter.Value></Setter>
+        </Style>
+        <Style x:Key="PageScrollViewer" TargetType="ScrollViewer">
+            <Setter Property="HorizontalScrollBarVisibility" Value="Disabled"/>
+            <Setter Property="PanningMode" Value="VerticalOnly"/>
+            <Setter Property="Template"><Setter.Value>
+                <ControlTemplate TargetType="ScrollViewer">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="16"/></Grid.ColumnDefinitions>
+                        <Border Padding="{TemplateBinding Padding}" Margin="0,0,14,0">
+                            <ScrollContentPresenter x:Name="PART_ScrollContentPresenter" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" CanContentScroll="{TemplateBinding CanContentScroll}"/>
+                        </Border>
+                        <ScrollBar x:Name="PART_VerticalScrollBar" Grid.Column="1" Style="{StaticResource PageScrollBar}" Orientation="Vertical" Margin="0,16,0,12"
+                            Value="{TemplateBinding VerticalOffset}" Maximum="{TemplateBinding ScrollableHeight}" ViewportSize="{TemplateBinding ViewportHeight}"
+                            Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"/>
                     </Grid>
                 </ControlTemplate>
             </Setter.Value></Setter>

@@ -34,6 +34,11 @@ public partial class MainWindow : Window
         trayMenu.Items.Add("Запустить / остановить Telegram", null, (_, _) => model.Telegram.PrimaryCommand.Execute(null));
         trayMenu.Items.Add(new Forms.ToolStripSeparator());
         trayMenu.Items.Add("Выход (остановить всё)", null, (_, _) => model.RequestExit());
+        tray.BalloonTipClicked += (_, _) => ShowWindow();
+        model.AppUpdates.UpdateReady += title =>
+        {
+            if (!IsVisible) tray.ShowBalloonTip(7000, title, "Обновление загружено. Нажмите, чтобы открыть «Связь» и перезапустить её.", Forms.ToolTipIcon.Info);
+        };
         tray.DoubleClick += (_, _) => ShowWindow();
         model.Notify += (title, text) => { if (!IsVisible) tray.ShowBalloonTip(5000, title, text, Forms.ToolTipIcon.Info); };
         model.ExitReady += () => { exiting = true; Close(); };

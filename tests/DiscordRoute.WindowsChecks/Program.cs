@@ -30,23 +30,10 @@ internal static class WindowsChecks
                 {
                     tabs.SelectedIndex = index;
                     window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
-                    var content = (FrameworkElement)window.Content;
-                    content.UpdateLayout();
                     Check(((TabItem)tabs.Items[index]).ActualWidth > 40, name + " tab visible");
-                    var bitmap = new RenderTargetBitmap(440, 680, 96, 96, PixelFormats.Pbgra32);
-                    var visual = new DrawingVisual();
-                    using (var drawing = visual.RenderOpen())
-                    {
-                        drawing.DrawRectangle(window.Background ?? Brushes.White, null, new Rect(0, 0, 440, 680));
-                        drawing.DrawRectangle(new VisualBrush(content), null, new Rect(content.TranslatePoint(new Point(0, 0), window), new Size(content.ActualWidth, content.ActualHeight)));
-                    }
-                    bitmap.Render(visual);
-                    var encoder = new PngBitmapEncoder();
-                    encoder.Frames.Add(BitmapFrame.Create(bitmap));
-                    Directory.CreateDirectory("dist");
-                    using var screenshot = File.Create($"dist/{name}-window.png");
-                    encoder.Save(screenshot);
+                    SaveScreenshot(window, name);
                 }
+                UpdateNoticeChecks.Run(window, tabs, Check, name => SaveScreenshot(window, name));
                 Check(InstallerMaintenance.OwnTask("DiscordRoute-test", TaskXml(@"C:\App\Versions\abc\Связь.exe"), @"C:\App"), "owned autostart identified");
                 Check(!InstallerMaintenance.OwnTask("DiscordRoute-test", TaskXml(@"C:\App\Versions\abc\Связь.exe").Replace("</Actions>", "<ComHandler/></Actions>"), @"C:\App"), "multi-action tasks preserved");
                 Check(!InstallerMaintenance.OwnTask("Other", TaskXml(@"C:\App\Versions\abc\Связь.exe"), @"C:\App"), "other task name preserved");
@@ -61,6 +48,26 @@ internal static class WindowsChecks
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
         finally { app.Shutdown(); }
+    }
+
+    private static void SaveScreenshot(Window window, string name)
+    {
+        window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        var content = (FrameworkElement)window.Content;
+        content.UpdateLayout();
+        var bitmap = new RenderTargetBitmap(440, 680, 96, 96, PixelFormats.Pbgra32);
+        var visual = new DrawingVisual();
+        using (var drawing = visual.RenderOpen())
+        {
+            drawing.DrawRectangle(window.Background ?? Brushes.White, null, new Rect(0, 0, 440, 680));
+            drawing.DrawRectangle(new VisualBrush(content), null, new Rect(content.TranslatePoint(new Point(0, 0), window), new Size(content.ActualWidth, content.ActualHeight)));
+        }
+        bitmap.Render(visual);
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        Directory.CreateDirectory("dist");
+        using var screenshot = File.Create($"dist/{name}-window.png");
+        encoder.Save(screenshot);
     }
 
     private static string TaskXml(string path) => "<Task xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\"><Actions><Exec><Command>" + path + "</Command></Exec></Actions></Task>";
