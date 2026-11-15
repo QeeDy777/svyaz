@@ -193,7 +193,7 @@
                                 <CheckBox Content="Подключать при входе в Windows" IsChecked="{Binding AutostartEnabled, Mode=OneWay}" Command="{Binding AutostartCommand}" Margin="0,0,0,8"/>
                                 <TextBlock Text="Подключение начнётся через 15 секунд после входа. Приложение останется в трее." Style="{StaticResource SecondaryText}" Margin="28,0,0,22"/>
                                 <CheckBox Content="Обновлять «Связь» и компоненты" IsChecked="{Binding AutoUpdateEnabled}" Command="{Binding AutoUpdateCommand}" Margin="0,0,0,8"/>
-                                <TextBlock Text="Проверка каждые 6 часов. «Связь» скачивается в фоне и обновляется при следующем запуске. Telegram — только при остановленном прокси." Style="{StaticResource SecondaryText}" Margin="28,0,0,16"/>
+                                <TextBlock Text="Проверка каждые 6 часов. «Связь» скачивается в фоне и обновляется при следующем запуске вместе с Telegram-прокси." Style="{StaticResource SecondaryText}" Margin="28,0,0,16"/>
                                 <Button Style="{StaticResource QuietButton}" Content="Обновить альты" Command="{Binding UpdateCommand}" HorizontalAlignment="Left" Padding="18,10"/>
                             </StackPanel>
                         </Border>
