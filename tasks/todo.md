@@ -19,4 +19,4 @@
 - [x] 0.4: Windows CI integration; verified official Telegram process and cleanup.
 
 - [x] 0.5: strict self-update package validation, background staging, acknowledged restart and fallback.
-- [ ] 0.5: Windows CI self-update checks and release publication.
+- [x] 0.5: Windows CI self-update checks, real published EXE startup and fallback preparation.
