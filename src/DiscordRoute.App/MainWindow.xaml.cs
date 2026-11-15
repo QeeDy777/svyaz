@@ -21,7 +21,7 @@ public partial class MainWindow : Window
         Height = Math.Min(Height, SystemParameters.WorkArea.Height);
         model = new(action => { if (!Dispatcher.HasShutdownStarted) Dispatcher.BeginInvoke(action); });
         DataContext = model;
-        using (var stream = Application.GetResourceStream(new Uri("pack://application:,,,/Assets/app.ico"))!.Stream)
+        using (var stream = Application.GetResourceStream(new Uri($"pack://application:,,,/{typeof(App).Assembly.GetName().Name};component/Assets/app.ico"))!.Stream)
         using (var icon = new System.Drawing.Icon(stream, 32, 32))
             trayIcon = (System.Drawing.Icon)icon.Clone();
         tray = new() { Icon = trayIcon, Text = "Связь", Visible = true, ContextMenuStrip = trayMenu };

@@ -13,7 +13,6 @@ internal static class WindowsChecks
     [STAThread]
     private static int Main()
     {
-        Application.ResourceAssembly = typeof(App).Assembly;
         var app = new App();
         try
         {
