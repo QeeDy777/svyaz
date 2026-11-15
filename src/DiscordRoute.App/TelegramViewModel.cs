@@ -15,6 +15,10 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
     private TaskCompletionSource? operationDone;
     private DateTimeOffset nextUpdate;
     private bool exiting;
+    private DateTimeOffset? startedAt;
+    public string Summary => IsBusy ? "Telegram · операция…" : IsRunning ? "Telegram · прокси запущен" : "Telegram · выключен";
+    public string ConnectionTime => startedAt is { } at && IsRunning ? "Прокси работает " + Math.Max(0, (int)(DateTimeOffset.UtcNow - at).TotalMinutes) + " мин" : "Прокси не запущен";
+    public int? LastError { get; private set; }
     public string Port { get; set; }
     public bool StartWithApp { get; set; }
     public bool IsBusy { get; private set; }
@@ -63,6 +67,7 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
 
     public async Task TickAsync()
     {
+        Changed(nameof(ConnectionTime));
         if (IsBusy || exiting) return;
         if (IsRunning && !runner.IsRunning) { Status = "Telegram-прокси остановился. Запустите его снова или отключите прокси в Telegram."; Refresh(); }
         if (!IsRunning && state.AutoUpdate && DateTimeOffset.UtcNow >= nextUpdate &&
@@ -111,6 +116,7 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
         }
         Status = "Запускаем локальный прокси…";
         var selected = await new TelegramSession(runner, state, save, log).StartAsync(active, pending, ct);
+        startedAt = DateTimeOffset.UtcNow;
         Status = "Локальный прокси готов. Нажмите «Открыть в Telegram» и подтвердите подключение.";
         Version = "tg-ws-proxy " + selected.Version;
         log("Telegram: локальный порт отвечает; доступность сообщений и звонков не проверялась.");
@@ -149,6 +155,7 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
         catch (OperationCanceledException) { Status = "Операция Telegram отменена."; }
         catch (Exception ex)
         {
+            LastError = ex.HResult;
             var message = state.Telegram.Secret.Length == 0 ? ex.Message : ex.Message.Replace(state.Telegram.Secret, "[ключ скрыт]", StringComparison.OrdinalIgnoreCase);
             Status = message;
             log("Telegram: " + message);
@@ -163,6 +170,7 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
     private void Refresh()
     {
         IsRunning = runner.IsRunning;
+        if (!IsRunning) startedAt = null;
         Changed(null);
         PrimaryCommand.Refresh(); SaveCommand.Refresh(); UpdateCommand.Refresh(); OpenCommand.Refresh(); CopyCommand.Refresh();
     }

@@ -33,6 +33,14 @@ internal static class WindowsChecks
                     Check(((TabItem)tabs.Items[index]).ActualWidth > 40, name + " tab visible");
                     SaveScreenshot(window, name);
                 }
+                var model = (MainViewModel)window.DataContext;
+                Check(model.RepairCommand.CanExecute(null) && model.ExportDiagnosticsCommand.CanExecute(null), "Repair and safe diagnostics actions available");
+                Check(model.DiscordSummary.Contains("выключен") && model.Telegram.Summary.Contains("выключен"), "Separate service status starts disconnected");
+                Check(model.ConnectionTime.Contains("не запущено") && model.LastCheck.Contains("пока нет"), "No invented connection time or successful check");
+                Check(model.AppUpdates.CurrentNotes.Contains("0.7.0") && model.AppUpdates.EarlierNotes.Contains("0.6.1"), "Release history available offline");
+                var network = CurrentNetwork.Read();
+                Check(network == null || network.Length == 64, "Windows network identity is hashed or explicitly unknown");
+                Console.WriteLine("NLM profile detected: " + (network != null));
                 UpdateNoticeChecks.Run(window, tabs, Check, name => SaveScreenshot(window, name));
                 Check(InstallerMaintenance.OwnTask("DiscordRoute-test", TaskXml(@"C:\App\Versions\abc\Связь.exe"), @"C:\App"), "owned autostart identified");
                 Check(!InstallerMaintenance.OwnTask("DiscordRoute-test", TaskXml(@"C:\App\Versions\abc\Связь.exe").Replace("</Actions>", "<ComHandler/></Actions>"), @"C:\App"), "multi-action tasks preserved");
@@ -42,7 +50,7 @@ internal static class WindowsChecks
             }
             finally { ((MainViewModel)window.DataContext).Dispose(); }
             Task.Run(() => CheckProxyAsync(args.Take(2).ToArray())).GetAwaiter().GetResult();
-            SelfUpdateChecks.Run(args.Length == 3 ? args[2] : null, Check);
+            SelfUpdateChecks.Run(args.Length >= 3 ? args[2] : null, Check, args.Length >= 4 ? args[3] : null);
             Console.WriteLine("Windows checks passed. Telegram messages/calls were not tested.");
             return 0;
         }

@@ -44,7 +44,7 @@ internal static class Program
                         try
                         {
                             var selected = updater.SelectForLaunch(AppState.Load(Path.Combine(DataRoot, "settings.json")).AutoUpdate);
-                            if (selected != null) { updater.Executable(selected); Restart = new(selected, resume); }
+                            if (selected != null) { updater.Executable(selected); Restart = new(selected, resume, AppUpdatePackage.ParseVersion(selected.Version) < AppUpdater.RunningVersion); }
                         }
                         catch (Exception ex) { StartupFailure.Save(ex, DataRoot); }
                     }
@@ -69,7 +69,7 @@ internal static class Program
                 try
                 {
                     if (UpdateHandoff.Start(updater.Executable(restart.App), restart.Arguments,
-                        () => updater.Promote(restart.App), TimeSpan.FromSeconds(30))) return;
+                        () => updater.Promote(restart.App, restart.Rollback), TimeSpan.FromSeconds(30))) return;
                     throw new IOException("Новая версия не подтвердила запуск за 30 секунд.");
                 }
                 catch (Exception ex)

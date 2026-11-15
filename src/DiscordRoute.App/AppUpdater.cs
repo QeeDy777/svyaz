@@ -66,18 +66,55 @@ internal sealed class AppUpdater(string installRoot, string dataRoot)
 
     public InstalledApp? SelectForLaunch(bool applyPending)
     {
+        var rollback = Read("rollback");
+        if (!applyPending && rollback != null && rollback == Read("current") && AppUpdatePackage.ParseVersion(rollback.Version) < RunningVersion)
+            return rollback;
         var pending = applyPending ? Read("pending") : null;
         var current = Read("current");
         return new[] { pending, current }.Where(v => v != null && AppUpdatePackage.ParseVersion(v.Version) > RunningVersion)
             .OrderByDescending(v => AppUpdatePackage.ParseVersion(v!.Version)).FirstOrDefault();
     }
 
-    public void Promote(InstalledApp value)
+    internal IReadOnlyList<InstalledApp> InstalledVersions()
+    {
+        var versions = Path.Combine(installRoot, "Versions");
+        if (!Directory.Exists(versions)) return [];
+        var result = new List<InstalledApp>();
+        foreach (var directory in Directory.EnumerateDirectories(versions))
+        {
+            var id = Path.GetFileName(directory);
+            if (!Regex.IsMatch(id, @"\A[0-9a-f]{64}\z")) continue;
+            try
+            {
+                var info = FileVersionInfo.GetVersionInfo(Path.Combine(directory, "Связь.exe"));
+                var version = new Version(info.FileMajorPart, info.FileMinorPart, info.FileBuildPart);
+                if (version < new Version(0, 5, 0)) continue;
+                var item = new InstalledApp(version.ToString(), id);
+                Executable(item);
+                result.Add(item);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { }
+        }
+        return result.OrderByDescending(v => AppUpdatePackage.ParseVersion(v.Version)).ToArray();
+    }
+
+    internal static InstalledApp? PreviousVersion(IEnumerable<InstalledApp> installed, Version running) =>
+        installed.Where(v => AppUpdatePackage.ParseVersion(v.Version) >= new Version(0, 5, 0) && AppUpdatePackage.ParseVersion(v.Version) < running)
+            .OrderByDescending(v => AppUpdatePackage.ParseVersion(v.Version)).FirstOrDefault();
+
+    public void Promote(InstalledApp value, bool rollback = false)
     {
         Executable(value);
+        if (rollback && AppUpdatePackage.ParseVersion(value.Version) >= RunningVersion)
+            throw new InvalidDataException("Откат доступен только к предыдущей версии.");
         var pending = Read("pending");
+        Directory.CreateDirectory(DirectoryPath);
+        // current.json is the commit point: no fallible mandatory writes follow it.
+        if (rollback) Write("rollback", value);
         Write("current", value);
-        if (pending == value)
+        if (!rollback)
+            try { File.Delete(StatePath("rollback")); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        if (pending == value || rollback)
             try { File.Delete(StatePath("pending")); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
@@ -89,7 +126,7 @@ internal sealed class AppUpdater(string installRoot, string dataRoot)
     }
 
     private string StatePath(string name) => Path.Combine(DirectoryPath, name switch
-    { "pending" or "current" or "rejected" => name + ".json", _ => throw new ArgumentException("Unknown app update state") });
+    { "pending" or "current" or "rejected" or "rollback" => name + ".json", _ => throw new ArgumentException("Unknown app update state") });
 
     private void Write(string name, InstalledApp value)
     {

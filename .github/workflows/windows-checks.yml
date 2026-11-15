@@ -1,7 +1,7 @@
 name: Windows checks
 on:
   push:
-    branches: [main, feature/update-notice]
+    branches: [main, feature/convenience]
   pull_request:
   workflow_dispatch:
 
@@ -53,11 +53,24 @@ jobs:
       - name: Build installer
         shell: pwsh
         run: ./scripts/build-installer.ps1 -IsccPath "$env:RUNNER_TEMP/InnoSetup/ISCC.exe"
+      - name: Download previous version for rollback test
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $release = gh api repos/QeeDy777/svyaz/releases/tags/v0.6.1 | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot fetch previous release' }
+          $asset = $release.assets | Where-Object name -eq 'Svyaz-0.6.1-win-x64-unsigned.zip'
+          New-Item -ItemType Directory -Force dist/rollback-fixture | Out-Null
+          gh release download v0.6.1 --repo QeeDy777/svyaz --pattern Svyaz-0.6.1-win-x64-unsigned.zip --dir dist/rollback-fixture
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot download rollback fixture' }
+          $hash = (Get-FileHash dist/rollback-fixture/Svyaz-0.6.1-win-x64-unsigned.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($asset.digest -ne "sha256:$hash") { throw 'Rollback fixture checksum mismatch' }
       - name: WPF, Telegram and self-update
         shell: pwsh
         run: |
           $version = ([xml](Get-Content Directory.Build.props -Raw)).Project.PropertyGroup.Version
-          dotnet run --project tests/DiscordRoute.WindowsChecks -- dist/telegram-release.json dist/telegram-component/TgWsProxy_windows.exe "dist/Svyaz-$version-win-x64-unsigned.zip"
+          dotnet run --project tests/DiscordRoute.WindowsChecks -- dist/telegram-release.json dist/telegram-component/TgWsProxy_windows.exe "dist/Svyaz-$version-win-x64-unsigned.zip" dist/rollback-fixture/Svyaz-0.6.1-win-x64-unsigned.zip
       - name: Installer lifecycle
         shell: pwsh
         run: ./tests/Installer.Checks.ps1

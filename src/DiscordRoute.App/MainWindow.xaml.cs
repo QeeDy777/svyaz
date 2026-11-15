@@ -14,12 +14,14 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMinutes(1) };
     private bool exiting;
     private bool initialized;
+    private readonly bool servicesEnabled;
 
     public MainWindow(bool startup) : this(startup, true) { }
 
     internal MainWindow(bool startup, bool initializeServices, bool resumeDiscord = false, bool resumeTelegram = false)
     {
         initialized = !initializeServices;
+        servicesEnabled = initializeServices;
         InitializeComponent();
         Height = Math.Min(Height, SystemParameters.WorkArea.Height);
         model = new(action => { if (!Dispatcher.HasShutdownStarted) Dispatcher.BeginInvoke(action); });
@@ -30,6 +32,16 @@ public partial class MainWindow : Window
         tray = new() { Icon = trayIcon, Text = "Связь", Visible = true, ContextMenuStrip = trayMenu };
         trayMenu.Items.Add("Открыть", null, (_, _) => ShowWindow());
         trayMenu.Items.Add("Подобрать и подключить", null, (_, _) => model.ConnectCommand.Execute(null));
+        var repairItem = trayMenu.Items.Add("Исправить подключение", null, (_, _) => model.RepairCommand.Execute(null));
+        var updateItem = trayMenu.Items.Add("Проверить обновление «Связи»", null, (_, _) => model.AppUpdates.CheckCommand.Execute(null));
+        var strategyItem = trayMenu.Items.Add("Стратегия: —");
+        strategyItem.Enabled = false;
+        trayMenu.Opening += (_, _) =>
+        {
+            repairItem.Enabled = model.RepairCommand.CanExecute(null);
+            updateItem.Enabled = model.AppUpdates.CheckCommand.CanExecute(null);
+            strategyItem.Text = "Стратегия: " + model.CurrentStrategy;
+        };
         trayMenu.Items.Add("Отключить", null, (_, _) => model.StopCommand.Execute(null));
         trayMenu.Items.Add("Запустить / остановить Telegram", null, (_, _) => model.Telegram.PrimaryCommand.Execute(null));
         trayMenu.Items.Add(new Forms.ToolStripSeparator());
@@ -51,6 +63,7 @@ public partial class MainWindow : Window
             if (initialized) return;
             initialized = true;
             if (startup) HideToTray();
+            else ShowReleaseNotes();
             model.AppUpdates.AnnouncePending();
             await model.InitializeAsync(startup, resumeDiscord, resumeTelegram);
             if (!exiting) timer.Start();
@@ -61,7 +74,13 @@ public partial class MainWindow : Window
     }
 
     private void HideToTray() { Hide(); ShowInTaskbar = false; }
-    private void ShowWindow() { ShowInTaskbar = true; Show(); WindowState = WindowState.Normal; Activate(); }
+    private void ShowWindow() { ShowInTaskbar = true; Show(); WindowState = WindowState.Normal; Activate(); ShowReleaseNotes(); }
+    private void ShowReleaseNotes()
+    {
+        if (!servicesEnabled || !model.NeedsReleaseNotes || !IsVisible) return;
+        MainTabs.SelectedIndex = 2;
+        model.MarkReleaseNotesSeen();
+    }
     private void OnSessionEnding(object sender, SessionEndingCancelEventArgs e) { exiting = true; model.Dispose(); }
     protected override void OnClosing(CancelEventArgs e)
     {

@@ -4,7 +4,7 @@ public sealed class ConnectionSession(IStrategyRunner runner, AppState state, Ac
     Action<Strategy, ProbeResult?, string> report, Action<string> log)
 {
     public async Task<Strategy> ConnectAsync(Package? active, Package? pending,
-        Func<CancellationToken, Task<ProbeResult>> probe, string? manualStrategy, CancellationToken ct)
+        Func<CancellationToken, Task<ProbeResult>> probe, string? manualStrategy, CancellationToken ct, string? preferredStrategy = null)
     {
         var wasRunning = runner.IsRunning;
         var oldStrategy = state.LastStrategy;
@@ -20,7 +20,7 @@ public sealed class ConnectionSession(IStrategyRunner runner, AppState state, Ac
                 var strategies = manualStrategy == null ? all : all.Where(s => s.Name == manualStrategy).ToArray();
                 if (strategies.Count == 0) continue;
                 log("Проверка пакета " + package.Version);
-                var selected = await engine.SelectAsync(package, strategies, oldStrategy, ct);
+                var selected = await engine.SelectAsync(package, strategies, preferredStrategy ?? oldStrategy, ct);
                 if (selected == null) continue;
                 if (package.Id != oldActive) state.PreviousPackage = oldActive;
                 state.ActivePackage = package.Id;

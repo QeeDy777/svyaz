@@ -21,12 +21,25 @@ internal sealed class AppUpdateViewModel : ObservableState, IDisposable
     public string Version => AppUpdater.RunningVersion.ToString();
     public string Status { get; private set => Set(ref field, value); } = "Проверяем стабильные релизы GitHub. Настройки сохраняются.";
     public bool IsBusy { get; private set; }
+    private InstalledApp? previous;
+    public string CurrentNotes => ReleaseNotes.Current;
+    public string EarlierNotes => ReleaseNotes.Earlier;
+    public bool ShowWhatsNew { get; set; }
+    public string InstalledHistory { get; private set => Set(ref field, value); } = "Проверяем сохранённые версии…";
+    public string RollbackLabel => previous == null ? "Предыдущая версия не сохранена" : "Вернуться к " + previous.Version;
+    public UiCommand RollbackCommand { get; }
     public UiCommand CheckCommand { get; }
     public UiCommand RestartCommand { get; }
 
-    public AppUpdateViewModel(AppState state, Action<string> log, Action<InstalledApp> restart)
+    public AppUpdateViewModel(AppState state, Action<string> log, Action<InstalledApp> restart, Action<InstalledApp>? rollback = null)
     {
         this.state = state; this.log = log;
+        RollbackCommand = new(() =>
+        {
+            try { if (previous != null) { updater.Executable(previous); rollback?.Invoke(previous); } }
+            catch (Exception ex) { Status = "Откат не выполнен: " + ex.Message; log(Status); }
+            return Task.CompletedTask;
+        }, () => previous != null && rollback != null && !IsBusy && !exiting);
         CheckCommand = new(() => CheckAsync(true), () => !IsBusy && !exiting);
         DismissCommand = new(() => { dismissedId = pending?.Id; Refresh(); return Task.CompletedTask; }, () => pending != null);
         RestartCommand = new(() =>
@@ -37,6 +50,20 @@ internal sealed class AppUpdateViewModel : ObservableState, IDisposable
         }, () => pending != null && !IsBusy && !exiting);
         try { SetPending(updater.Read("pending")); }
         catch (Exception ex) { Status = ex.Message; }
+    }
+
+    public async Task LoadHistoryAsync()
+    {
+        try
+        {
+            var installed = await Task.Run(updater.InstalledVersions);
+            if (exiting) return;
+            previous = AppUpdater.PreviousVersion(installed, AppUpdater.RunningVersion);
+            InstalledHistory = "Сейчас установлена " + Version + ". Сохранённые версии: " +
+                (installed.Count == 0 ? "пока нет." : string.Join(", ", installed.Select(v => v.Version).Distinct()) + ".");
+        }
+        catch (Exception ex) { InstalledHistory = "История недоступна: " + ex.Message; }
+        Refresh();
     }
 
     public Task TickAsync() => state.AutoUpdate && DateTimeOffset.UtcNow >= nextCheck ? CheckAsync(false) : Task.CompletedTask;
@@ -90,7 +117,7 @@ internal sealed class AppUpdateViewModel : ObservableState, IDisposable
         }
     }
 
-    private void Refresh() { Changed(null); CheckCommand.Refresh(); RestartCommand.Refresh(); DismissCommand.Refresh(); }
+    private void Refresh() { Changed(null); RollbackCommand.Refresh(); CheckCommand.Refresh(); RestartCommand.Refresh(); DismissCommand.Refresh(); }
     public async Task ExitAsync()
     {
         exiting = true;

@@ -64,6 +64,7 @@ Type: filesandordirs; Name: "{app}\Versions"
 Type: files; Name: "{app}\Data\AppUpdate\current.json"
 Type: files; Name: "{app}\Data\AppUpdate\pending.json"
 Type: files; Name: "{app}\Data\AppUpdate\rejected.json"
+Type: files; Name: "{app}\Data\AppUpdate\rollback.json"
 
 [Code]
 procedure InitializeWizard;

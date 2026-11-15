@@ -52,6 +52,7 @@ try {
     Assert ($migrated.Actions.Arguments -eq '--startup' -and $migrated.State -eq 'Disabled') 'Autostart arguments and disabled state preserved'
     $uninstaller = (Get-ChildItem $root -Filter 'unins*.exe' | Select-Object -First 1).FullName
     $log = Join-Path $PWD 'dist/installer-uninstall.log'
+    Copy-Item "$root/Data/AppUpdate/current.json" "$root/Data/AppUpdate/rollback.json"
     $process = Start-Process $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$log`"") -PassThru -Wait
     Assert ($process.ExitCode -eq 0) 'Uninstaller succeeded'
     Assert (-not (Test-Path "$application/Связь.exe")) 'Application removed'
@@ -60,6 +61,7 @@ try {
     Assert ($null -eq (Get-ScheduledTask -TaskName $ownName -ErrorAction SilentlyContinue)) 'Owned autostart removed'
     Assert ($null -ne (Get-ScheduledTask -TaskName $foreignName -ErrorAction SilentlyContinue)) 'Unrelated task preserved'
     Assert ([IO.File]::ReadAllText("$root/Data/settings.json") -ceq $settings) 'Uninstall preserves settings exactly'
+    Assert (-not (Test-Path "$root/Data/AppUpdate/rollback.json")) 'Uninstall clears rollback pointer'
     Install reinstall
     Assert ([IO.File]::ReadAllText("$root/Data/settings.json") -ceq $settings) 'Reinstall preserves settings exactly'
 }

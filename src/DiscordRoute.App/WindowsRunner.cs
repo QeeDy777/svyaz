@@ -6,6 +6,9 @@ namespace DiscordRoute.App;
 internal sealed class WindowsRunner(Action<string> log, Func<GameFilterSettings> gameFilter, string gameIpSetPath) : IStrategyRunner, IDisposable
 {
     private readonly ManagedProcess process = new();
+    private DateTimeOffset? startedAt;
+    public DateTimeOffset? StartedAt => IsRunning ? startedAt : null;
+    public string? StrategyName { get; private set; }
     public bool IsRunning => process.IsRunning;
 
     public static void EnsureNoExternalProcess()
@@ -33,6 +36,8 @@ internal sealed class WindowsRunner(Action<string> log, Func<GameFilterSettings>
         try
         {
             process.Start(start, line => log("winws: " + line));
+            startedAt = DateTimeOffset.UtcNow;
+            StrategyName = strategy.Name;
             await Task.Delay(1200, ct);
             if (!process.IsRunning) throw new IOException("winws завершился (код " + process.ExitCode + "). См. журнал.");
         }

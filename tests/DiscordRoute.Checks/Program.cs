@@ -18,6 +18,7 @@ void Reject(Action action, string name)
     throw new Exception("FAIL (accepted invalid input): " + name);
 }
 
+ConvenienceChecks.Run(Check);
 IconChecks.Run(Check);
 TelegramChecks.Run(Check);
 AppUpdateChecks.Run(Check);
@@ -135,6 +136,10 @@ try
     var statePath = Path.Combine(root, "settings.json");
     new AppState { LastStrategy = "ALT2", ActivePackage = "test" }.Save(statePath);
     Check(AppState.Load(statePath).LastStrategy == "ALT2", "State survives restart");
+    var preferencesPath = Path.Combine(root, "preferences.json");
+    new ConvenienceState { NetworkStrategies = new() { ["home"] = "ALT1" }, LastSeenAppVersion = "0.7.0" }.Save(preferencesPath);
+    AppState.Load(statePath).Save(statePath);
+    Check(ConvenienceState.Load(preferencesPath).NetworkStrategies["home"] == "ALT1" && ConvenienceState.Load(preferencesPath).LastSeenAppVersion == "0.7.0", "Older settings writer cannot erase network profiles or release history");
     var xml = XDocument.Parse(LogonTask.Xml(@"C:\Program Files\Test & Test\Связь.exe", "S-1-5-21-123"));
     XNamespace taskNs = "http://schemas.microsoft.com/windows/2004/02/mit/task";
     Check(xml.Descendants(taskNs + "Command").Single().Value.Contains("Test & Test"), "Autostart XML escapes executable");
@@ -180,6 +185,17 @@ try
     session = new ConnectionSession(fake, sessionState, () => throw new IOException("Disk full"), (_, _, _) => { }, _ => { });
     try { await session.ConnectAsync(oldPackage, nextPackage, _ => Task.FromResult(pass), null, default); throw new Exception("Expected save failure"); }
     catch (IOException) { Check(sessionState.ActivePackage == "old" && fake.CurrentPackage == "old" && fake.IsRunning, "State save failure restores previous process"); }
+    File.WriteAllText(Path.Combine(old, "general (ALT2).bat"), script);
+    fake = new FakeRunner();
+    sessionState = new AppState { ActivePackage = "old", LastStrategy = "general" };
+    session = new ConnectionSession(fake, sessionState, () => { }, (_, _, _) => { }, _ => { });
+    await session.ConnectAsync(oldPackage, null, _ => Task.FromResult(pass), null, default, "general (ALT2)");
+    Check(fake.Started.First() == "general (ALT2)", "Connection uses current network preference before global last strategy");
+    fake = new FakeRunner();
+    calls = 0;
+    session = new ConnectionSession(fake, sessionState, () => { }, (_, _, _) => { }, _ => { });
+    await session.ConnectAsync(oldPackage, null, _ => Task.FromResult(++calls == 1 ? fail : pass), null, default, "general (ALT2)");
+    Check(sessionState.LastStrategy == "general" && fake.Started.Count == 2, "Repair can replace a failing saved strategy with a twice-tested alternative");
     await LocalProtocolChecks.RunAsync(Check);
     var fixtures = args.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
     if (fixtures.Length > 0)

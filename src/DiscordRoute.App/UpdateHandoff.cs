@@ -2,7 +2,7 @@ using System.Diagnostics;
 
 namespace DiscordRoute.App;
 
-internal sealed record UpdateRestart(InstalledApp App, string[] Arguments);
+internal sealed record UpdateRestart(InstalledApp App, string[] Arguments, bool Rollback = false);
 
 internal static class UpdateHandoff
 {

@@ -63,7 +63,11 @@
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <Grid Margin="4,0,4,16">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-            <TextBlock Text="Связь" FontSize="24" FontWeight="SemiBold"/>
+            <StackPanel>
+                <TextBlock Text="Связь" FontSize="24" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding DiscordSummary}" Style="{StaticResource SecondaryText}" FontSize="11" Margin="0,5,0,0"/>
+                <TextBlock Text="{Binding Telegram.Summary}" Style="{StaticResource SecondaryText}" FontSize="11"/>
+            </StackPanel>
             <TextBlock Grid.Column="1" Text="{Binding AppUpdates.Version}" Style="{StaticResource SecondaryText}" FontSize="12" VerticalAlignment="Center"/>
         </Grid>
         <Border x:Name="UpdateNotice" Grid.Row="1" DataContext="{Binding AppUpdates}" Background="{DynamicResource BrandMint}" CornerRadius="12" Padding="14" Margin="0,0,0,12"
@@ -78,7 +82,7 @@
                 </Grid>
             </StackPanel>
         </Border>
-        <TabControl Grid.Row="2" BorderThickness="0" Background="Transparent" HorizontalContentAlignment="Stretch">
+        <TabControl x:Name="MainTabs" Grid.Row="2" BorderThickness="0" Background="Transparent" HorizontalContentAlignment="Stretch">
             <TabItem Header="Discord" Padding="10,12" AutomationProperties.Name="Подключение Discord">
                 <ScrollViewer Style="{StaticResource PageScrollViewer}" Foreground="{DynamicResource BrandInk}" FontSize="14" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="8,20,0,16">
                     <StackPanel>
@@ -92,6 +96,9 @@
                             <ProgressBar Value="100" IsIndeterminate="{DynamicResource {x:Static SystemParameters.ClientAreaAnimationKey}}"
                                 Visibility="{Binding IsBusy, Converter={StaticResource VisibleIfTrue}}" AutomationProperties.Name="Выполняется операция"/>
                         </Grid>
+                        <Button Content="Исправить подключение" Command="{Binding RepairCommand}" Style="{StaticResource QuietButton}" Margin="0,0,0,12"/>
+                        <TextBlock Text="{Binding ConnectionTime}" Style="{StaticResource SecondaryText}" FontSize="12" TextAlignment="Center"/>
+                        <TextBlock Text="{Binding LastCheck}" Style="{StaticResource SecondaryText}" FontSize="12" TextAlignment="Center" Margin="0,4,0,12"/>
                         <StackPanel Margin="0,0,0,14">
                             <ContentControl Content="{Binding Api}"/>
                             <ContentControl Content="{Binding Gateway}"/>
@@ -132,6 +139,7 @@
                         <Button Content="{Binding PrimaryLabel}" Command="{Binding PrimaryCommand}" Padding="18,12" HorizontalAlignment="Stretch" Margin="0,0,0,12"/>
                         <Button Style="{StaticResource QuietButton}" Content="Открыть в Telegram" Command="{Binding OpenCommand}" Padding="18,10" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
                         <Button Style="{StaticResource QuietButton}" Content="Скопировать ссылку" Command="{Binding CopyCommand}" Padding="18,10" HorizontalAlignment="Stretch" Margin="0,0,0,16"/>
+                        <TextBlock Text="{Binding ConnectionTime}" Style="{StaticResource SecondaryText}" Margin="0,0,0,8"/>
                         <TextBlock Text="{Binding Endpoint}" Style="{StaticResource SecondaryText}"/>
                         <TextBlock Text="{Binding Version}" Style="{StaticResource SecondaryText}" Margin="0,4,0,20"/>
                         <Expander Header="Настройки Telegram" HorizontalContentAlignment="Stretch" Margin="0,0,0,20">
@@ -155,6 +163,26 @@
                 <ScrollViewer Style="{StaticResource PageScrollViewer}" Foreground="{DynamicResource BrandInk}" FontSize="14" VerticalScrollBarVisibility="Auto" Padding="8,20,0,16">
                     <StackPanel>
                         <TextBlock Text="Настройки" FontSize="28" FontWeight="SemiBold" Margin="0,0,0,22"/>
+                        <Border Style="{StaticResource FlatSection}" Margin="0,0,0,16" DataContext="{Binding AppUpdates}">
+                            <StackPanel>
+                                <Expander Header="Что нового · история версий" IsExpanded="{Binding ShowWhatsNew}" HorizontalContentAlignment="Stretch">
+                                    <StackPanel Margin="0,12,0,0">
+                                        <TextBlock Text="{Binding CurrentNotes}" TextWrapping="Wrap" Margin="0,0,0,18"/>
+                                        <TextBlock Text="{Binding EarlierNotes}" Style="{StaticResource SecondaryText}"/>
+                                    </StackPanel>
+                                </Expander>
+                                <TextBlock Text="{Binding InstalledHistory}" Style="{StaticResource SecondaryText}" Margin="0,16,0,12"/>
+                                <Button Content="{Binding RollbackLabel}" Command="{Binding RollbackCommand}" Style="{StaticResource QuietButton}" HorizontalAlignment="Left"/>
+                                <TextBlock Text="Откат перезапустит приложение и выключит автообновление. Настройки сохранятся. Включить обновления снова можно ниже." Style="{StaticResource SecondaryText}" Margin="0,10,0,0"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource FlatSection}" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="Диагностика" Style="{StaticResource SectionTitle}"/>
+                                <TextBlock Text="{Binding DiagnosticFeedback}" Style="{StaticResource SecondaryText}" Margin="0,0,0,12" AutomationProperties.LiveSetting="Polite"/>
+                                <Button Content="Сохранить отчёт" Command="{Binding ExportDiagnosticsCommand}" Style="{StaticResource QuietButton}" HorizontalAlignment="Left"/>
+                            </StackPanel>
+                        </Border>
                         <Border Style="{StaticResource FlatSection}" Margin="0,0,0,16">
                             <StackPanel>
                                 <TextBlock Text="Работает автоматически" Style="{StaticResource SectionTitle}"/>
@@ -200,7 +228,8 @@
                                 <TextBlock Text="Параметры подключения" Style="{StaticResource SectionTitle}"/>
                                 <Label Content="Стратегия" Target="{Binding ElementName=StrategyPicker}" Padding="0" Margin="0,0,0,8"/>
                                 <ComboBox x:Name="StrategyPicker" ItemsSource="{Binding Strategies}" SelectedItem="{Binding SelectedStrategy}" MinHeight="38" AutomationProperties.Name="Стратегия обхода"/>
-                                <TextBlock Text="При автоподборе последняя рабочая стратегия проверяется первой." Style="{StaticResource SecondaryText}" Margin="0,8,0,22"/>
+                                <TextBlock Text="При автоподборе сначала проверим альт, сохранённый для текущей сети." Style="{StaticResource SecondaryText}" Margin="0,8,0,22"/>
+                                <TextBlock Text="{Binding NetworkSummary}" Style="{StaticResource SecondaryText}" Margin="0,0,0,18"/>
                                 <Label Content="Голосовой сервер · необязательно" Target="{Binding ElementName=VoiceInput}" Padding="0" Margin="0,0,0,8"/>
                                 <TextBox x:Name="VoiceInput" Text="{Binding VoiceAddress, UpdateSourceTrigger=PropertyChanged}" MinHeight="38" AutomationProperties.Name="Адрес голосового сервера"/>
                                 <TextBlock Text="Оставьте пустым для определения из журнала Discord. Если адрес ещё не появился, откройте голосовой канал. Формат: имя.discord.media:порт." Style="{StaticResource SecondaryText}" Margin="0,8,0,0"/>
