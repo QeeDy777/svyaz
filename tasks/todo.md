@@ -1,0 +1,14 @@
+- [x] Core protocol/parser assertions and actual upstream compatibility.
+- [x] Safe updater and transaction/selection assertions.
+- [x] Windows application, cancellation, tray and logon autostart implemented.
+- [x] Build/publish and local protocol integration checks.
+- [x] Final distribution ZIP and live GitHub smoke test (68 checks passed).
+- [x] 0.2: WPF/XAML Fluent UI, separate presentation state and lifecycle guard.
+- [x] 0.2: complete versioned runtime installation; 77 regression checks.
+- [x] 0.2: unsigned distribution, signing guide and 11 signing orchestration checks.
+- [x] 0.2.1: fixed portrait window, Russian name, central action and embedded EXE/window/tray icon.
+- [x] 0.2.1: 80 regression checks; preserved legacy data location during rename.
+- [x] 0.2.2: correct RGB24 ICO frames to RGBA32, preserve nested startup exceptions; 85 checks.
+- [x] 0.3: upstream Game Filter modes/custom ports, persistent settings and verified cached IPSet.
+- [ ] Windows runtime smoke test (requires Windows).
+- [ ] Actual signing with a trusted publisher certificate (not available).
