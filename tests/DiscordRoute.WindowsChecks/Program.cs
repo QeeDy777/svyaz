@@ -17,7 +17,7 @@ internal static class WindowsChecks
         try
         {
             app.InitializeComponent();
-            var window = new MainWindow(false);
+            var window = new MainWindow(false, initializeServices: false);
             try
             {
                 Check(window.Width == 440 && window.ResizeMode == ResizeMode.CanMinimize, "fixed portrait window");
@@ -25,9 +25,9 @@ internal static class WindowsChecks
                 var tabs = Find<TabControl>(window) ?? throw new Exception("Tabs not found");
                 Check(tabs.Items.Count == 4, "Discord, Telegram, settings and journal tabs");
                 tabs.SelectedIndex = 1;
+                window.Show();
+                window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
                 var content = (FrameworkElement)window.Content;
-                content.Measure(new Size(440, 680));
-                content.Arrange(new Rect(0, 0, 440, 680));
                 content.UpdateLayout();
                 var bitmap = new RenderTargetBitmap(440, 680, 96, 96, PixelFormats.Pbgra32);
                 bitmap.Render(content);

@@ -15,8 +15,11 @@ public partial class MainWindow : Window
     private bool exiting;
     private bool initialized;
 
-    public MainWindow(bool startup)
+    public MainWindow(bool startup) : this(startup, true) { }
+
+    internal MainWindow(bool startup, bool initializeServices)
     {
+        initialized = !initializeServices;
         InitializeComponent();
         Height = Math.Min(Height, SystemParameters.WorkArea.Height);
         model = new(action => { if (!Dispatcher.HasShutdownStarted) Dispatcher.BeginInvoke(action); });
