@@ -14,6 +14,15 @@ internal static class UpdateNoticeChecks
         check(!updates.IsNoticeVisible && !updates.RestartCommand.CanExecute(null), "No update notice before download");
         var version = AppUpdater.RunningVersion;
         var next = new InstalledApp(new Version(version.Major, version.Minor, version.Build + 1).ToString(), new string('a', 64));
+        using (var restored = new AppUpdateViewModel(new() { AutoUpdate = false }, _ => { }, _ => { }))
+        {
+            restored.SetPending(next);
+            var restoredNotices = 0;
+            restored.UpdateReady += _ => restoredNotices++;
+            restored.AnnouncePending();
+            restored.AnnouncePending();
+            check(restoredNotices == 1 && restored.IsNoticeVisible, "Saved update is announced after the window subscribes, even with automatic updates disabled");
+        }
         updates.SetPending(next);
         check(updates.IsNoticeVisible && notices == 1 && updates.RestartCommand.CanExecute(null), "Downloaded update shows one actionable notice");
         updates.SettingsChanged();

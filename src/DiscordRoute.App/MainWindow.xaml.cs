@@ -51,6 +51,7 @@ public partial class MainWindow : Window
             if (initialized) return;
             initialized = true;
             if (startup) HideToTray();
+            model.AppUpdates.AnnouncePending();
             await model.InitializeAsync(startup, resumeDiscord, resumeTelegram);
             if (!exiting) timer.Start();
         };

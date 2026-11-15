@@ -75,14 +75,19 @@ internal sealed class AppUpdateViewModel : ObservableState, IDisposable
         pending = update != null && AppUpdatePackage.ParseVersion(update.Version) > AppUpdater.RunningVersion ? update : null;
         if (pending != null) Status = "Версия " + pending.Version + " готова. " +
             (state.AutoUpdate ? "Применится при следующем запуске или по кнопке ниже." : "Нажмите «Обновить и перезапустить», чтобы установить её.");
-        if (!exiting && pending != null && announcedId != pending.Id)
+        if (pending != null && announcedId != pending.Id)
+            NoticeDetail = "Перезапуск ненадолго прервёт подключения.";
+        Refresh();
+        AnnouncePending();
+    }
+
+    internal void AnnouncePending()
+    {
+        if (IsNoticeVisible && pending != null && announcedId != pending.Id && UpdateReady is { } notify)
         {
             announcedId = pending.Id;
-            NoticeDetail = "Перезапуск ненадолго прервёт подключения.";
-            Refresh();
-            UpdateReady?.Invoke(NoticeTitle);
+            notify(NoticeTitle);
         }
-        else Refresh();
     }
 
     private void Refresh() { Changed(null); CheckCommand.Refresh(); RestartCommand.Refresh(); DismissCommand.Refresh(); }
