@@ -69,10 +69,10 @@
         <Grid Margin="4,0,4,16">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <TextBlock Text="Связь" FontSize="20" FontWeight="SemiBold"/>
-            <TextBlock Grid.Column="1" Text="0.3.0" Style="{StaticResource SecondaryText}" FontSize="12" VerticalAlignment="Center"/>
+            <TextBlock Grid.Column="1" Text="0.4.0" Style="{StaticResource SecondaryText}" FontSize="12" VerticalAlignment="Center"/>
         </Grid>
         <TabControl Grid.Row="1" BorderThickness="0" Background="Transparent" HorizontalContentAlignment="Stretch">
-            <TabItem Header="Подключение" Padding="16,10" AutomationProperties.Name="Подключение">
+            <TabItem Header="Discord" Padding="10,10" AutomationProperties.Name="Подключение Discord">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="8,12,8,8">
                     <StackPanel>
                         <TextBlock Text="{Binding Heading}" FontSize="26" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" Margin="0,0,0,8"/>
@@ -116,8 +116,35 @@
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
-            <TabItem AutomationProperties.Name="Настройки">
-                <TabItem.Header><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" Margin="0,0,10,0" VerticalAlignment="Center"/><TextBlock Text="Настройки"/></StackPanel></TabItem.Header>
+            <TabItem Header="Telegram" Padding="10,10" AutomationProperties.Name="Telegram">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8,20,8,8">
+                    <StackPanel DataContext="{Binding Telegram}">
+                        <TextBlock Text="Telegram" FontSize="28" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <TextBlock Text="Локальный прокси Flowseal" Style="{StaticResource SecondaryText}" Margin="0,0,0,20"/>
+                        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,16" AutomationProperties.LiveSetting="Polite"/>
+                        <Button Content="{Binding PrimaryLabel}" Command="{Binding PrimaryCommand}" Padding="18,12" HorizontalAlignment="Stretch" Margin="0,0,0,12"/>
+                        <Button Content="Открыть в Telegram" Command="{Binding OpenCommand}" Padding="18,10" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+                        <Button Content="Скопировать ссылку" Command="{Binding CopyCommand}" Padding="18,10" HorizontalAlignment="Stretch" Margin="0,0,0,16"/>
+                        <TextBlock Text="{Binding Endpoint}" Style="{StaticResource SecondaryText}"/>
+                        <TextBlock Text="{Binding Version}" Style="{StaticResource SecondaryText}" Margin="0,4,0,20"/>
+                        <Expander Header="Настройки Telegram" HorizontalContentAlignment="Stretch" Margin="0,0,0,20">
+                            <StackPanel Margin="0,16,0,0">
+                                <StackPanel IsEnabled="{Binding CanEdit}">
+                                    <Label Content="Локальный порт" Target="{Binding ElementName=TelegramPort}" Padding="0" Margin="0,0,0,6"/>
+                                    <TextBox x:Name="TelegramPort" Text="{Binding Port, UpdateSourceTrigger=PropertyChanged}" MaxLength="5" MinHeight="38" AutomationProperties.Name="Локальный порт Telegram"/>
+                                    <CheckBox Content="Запускать вместе со «Связью»" IsChecked="{Binding StartWithApp}" Margin="0,16,0,16"/>
+                                    <Button Content="Сохранить настройки" Command="{Binding SaveCommand}" Padding="18,10" HorizontalAlignment="Left" Margin="0,0,0,12"/>
+                                    <Button Content="Загрузить / обновить компонент" Command="{Binding UpdateCommand}" Padding="18,10" HorizontalAlignment="Left"/>
+                                </StackPanel>
+                                <TextBlock Text="Перед изменением настроек остановите прокси. Автообновление использует общий флажок в настройках и не прерывает работающий Telegram-прокси." Style="{StaticResource SecondaryText}" Margin="0,12,0,0"/>
+                            </StackPanel>
+                        </Expander>
+                        <TextBlock Text="Подтвердите прокси в Telegram. После остановки выключите его в Telegram или снова запустите здесь. Готовность локального порта не подтверждает работу сообщений и звонков." Style="{StaticResource SecondaryText}" Margin="0,0,0,12"/>
+                        <TextBlock Text="У TG WS Proxy остаётся собственный значок в трее для расширенных настроек. Discord подключается независимо." Style="{StaticResource SecondaryText}"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+            <TabItem Header="Настройки" Padding="10,10" AutomationProperties.Name="Настройки">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8,20,8,8">
                     <StackPanel>
                         <TextBlock Text="Настройки" FontSize="28" FontWeight="SemiBold" Margin="0,0,0,22"/>
@@ -126,8 +153,8 @@
                                 <TextBlock Text="Работает автоматически" Style="{StaticResource SectionTitle}"/>
                                 <CheckBox Content="Подключать при входе в Windows" IsChecked="{Binding AutostartEnabled, Mode=OneWay}" Command="{Binding AutostartCommand}" Margin="0,0,0,8"/>
                                 <TextBlock Text="Подключение начнётся через 15 секунд после входа. Приложение останется в трее." Style="{StaticResource SecondaryText}" Margin="28,0,0,22"/>
-                                <CheckBox Content="Обновлять альты с GitHub" IsChecked="{Binding AutoUpdateEnabled}" Command="{Binding AutoUpdateCommand}" Margin="0,0,0,8"/>
-                                <TextBlock Text="Проверяем стабильный релиз Flowseal каждые 6 часов. Новый пакет включается после успешных проверок." Style="{StaticResource SecondaryText}" Margin="28,0,0,16"/>
+                                <CheckBox Content="Обновлять компоненты с GitHub" IsChecked="{Binding AutoUpdateEnabled}" Command="{Binding AutoUpdateCommand}" Margin="0,0,0,8"/>
+                                <TextBlock Text="Альты и установленный Telegram-компонент: каждые 6 часов. Telegram обновляется только при остановленном прокси. Сама «Связь» обновляется вручную." Style="{StaticResource SecondaryText}" Margin="28,0,0,16"/>
                                 <Button Content="Проверить обновления" Command="{Binding UpdateCommand}" HorizontalAlignment="Left" Padding="18,10"/>
                             </StackPanel>
                         </Border>
@@ -166,8 +193,7 @@
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
-            <TabItem AutomationProperties.Name="Журнал">
-                <TabItem.Header><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE9D9;" FontFamily="Segoe MDL2 Assets" Margin="0,0,10,0" VerticalAlignment="Center"/><TextBlock Text="Журнал"/></StackPanel></TabItem.Header>
+            <TabItem Header="Журнал" Padding="10,10" AutomationProperties.Name="Журнал">
                 <Grid Margin="8,20,8,8">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                     <TextBlock Text="Журнал работы" FontSize="28" FontWeight="SemiBold" Margin="0,0,0,12"/>

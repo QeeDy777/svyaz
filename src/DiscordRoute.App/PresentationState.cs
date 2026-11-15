@@ -12,7 +12,7 @@ internal sealed record ServiceCheck(string Name, string Description, CheckKind K
 }
 internal sealed record StrategyResult(string Name, string Api, string Gateway, string Voice, string Outcome);
 
-internal class PresentationState : INotifyPropertyChanged
+internal class ObservableState : INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;
     protected void Changed([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));
@@ -22,6 +22,10 @@ internal class PresentationState : INotifyPropertyChanged
         storage = value;
         Changed(name);
     }
+}
+
+internal class PresentationState : ObservableState
+{
     private void ChangeState(ref bool storage, bool value)
     {
         if (storage == value) return;

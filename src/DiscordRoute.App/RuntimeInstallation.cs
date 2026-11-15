@@ -27,7 +27,7 @@ internal static class RuntimeInstallation
         {
             Directory.CreateDirectory(staging);
             foreach (var name in Files) File.Copy(Path.Combine(source, name), Path.Combine(staging, name));
-            foreach (var name in new[] { "DOTNET-LICENSE.txt", "DOTNET-THIRD-PARTY-NOTICES.txt", "WINDOWS-DESKTOP-LICENSE.txt" })
+            foreach (var name in new[] { "DOTNET-LICENSE.txt", "DOTNET-THIRD-PARTY-NOTICES.txt", "WINDOWS-DESKTOP-LICENSE.txt", "TG-WS-PROXY-LICENSE.txt" })
                 if (File.Exists(Path.Combine(source, name))) File.Copy(Path.Combine(source, name), Path.Combine(staging, name));
             if (Identity(staging) != identity) throw new IOException("Файлы приложения изменились при копировании.");
             Directory.Move(staging, destination);

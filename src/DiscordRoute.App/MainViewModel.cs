@@ -18,6 +18,8 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     private CancellationTokenSource? cancellation;
     private DateTimeOffset nextUpdateAttempt = DateTimeOffset.MinValue;
     private bool ready, stopRequested, exiting, disposed, startupRetry;
+    private bool telegramExited;
+    public TelegramViewModel Telegram { get; }
     private int startupAttempts;
     public event Action<string, string>? Notify;
     public event Action? ExitReady;
@@ -68,6 +70,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         }), () => !IsBusy && ready && !exiting);
         AutoUpdateCommand = new(() => RunAsync(_ => { Save(); Log(state.AutoUpdate ? "Автообновление включено." : "Автообновление выключено."); return Task.CompletedTask; }), () => !IsBusy && !exiting);
         GameFilterCommand = new(ApplyGameFilterAsync, () => !IsBusy && !runner.IsRunning && !exiting);
+        Telegram = new(state, Save, Log);
     }
 
     private async Task ApplyGameFilterAsync()
@@ -96,6 +99,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
 
     public async Task InitializeAsync(bool startup)
     {
+        var telegramInitialization = Telegram.InitializeAsync();
         startupRetry = startup;
         await RunAsync(async ct =>
         {
@@ -116,9 +120,12 @@ internal sealed class MainViewModel : PresentationState, IDisposable
             if (startup) { startupAttempts++; await ConnectAsync(ct); }
             await UpdateAsync(false, ct);
         });
+        await telegramInitialization;
     }
 
-    public async Task TickAsync()
+    public Task TickAsync() => Task.WhenAll(TickDiscordAsync(), Telegram.TickAsync());
+
+    private async Task TickDiscordAsync()
     {
         if (IsBusy || exiting) return;
         if (startupRetry && startupAttempts < 5 && NetworkInterface.GetIsNetworkAvailable())
@@ -134,12 +141,17 @@ internal sealed class MainViewModel : PresentationState, IDisposable
             await RunAsync(ct => UpdateAsync(false, ct));
     }
 
-    public void RequestExit()
+    public async void RequestExit()
     {
+        if (exiting) return;
         exiting = true;
         cancellation?.Cancel();
-        if (cancellation == null) ExitReady?.Invoke();
+        try { await Telegram.ExitAsync(); }
+        catch (Exception ex) { Log("Ошибка остановки Telegram: " + ex.Message); Telegram.Dispose(); }
+        finally { telegramExited = true; CompleteExit(); }
     }
+
+    private void CompleteExit() { if (exiting && telegramExited && cancellation == null) ExitReady?.Invoke(); }
 
     private async Task UpdateAsync(bool force, CancellationToken ct)
     {
@@ -253,7 +265,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
             }
             cancellation = null;
             SetBusy(false);
-            if (exiting) ExitReady?.Invoke();
+            CompleteExit();
         }
     }
 
@@ -356,5 +368,6 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         disposed = true;
         cancellation?.Cancel();
         runner.Dispose();
+        Telegram.Dispose();
     }
 }

@@ -28,12 +28,16 @@ public partial class MainWindow : Window
         trayMenu.Items.Add("Открыть", null, (_, _) => ShowWindow());
         trayMenu.Items.Add("Подобрать и подключить", null, (_, _) => model.ConnectCommand.Execute(null));
         trayMenu.Items.Add("Отключить", null, (_, _) => model.StopCommand.Execute(null));
+        trayMenu.Items.Add("Запустить / остановить Telegram", null, (_, _) => model.Telegram.PrimaryCommand.Execute(null));
         trayMenu.Items.Add(new Forms.ToolStripSeparator());
-        trayMenu.Items.Add("Выход (отключить обход)", null, (_, _) => model.RequestExit());
+        trayMenu.Items.Add("Выход (остановить всё)", null, (_, _) => model.RequestExit());
         tray.DoubleClick += (_, _) => ShowWindow();
         model.Notify += (title, text) => { if (!IsVisible) tray.ShowBalloonTip(5000, title, text, Forms.ToolTipIcon.Info); };
         model.ExitReady += () => { exiting = true; Close(); };
-        model.PropertyChanged += (_, _) => tray.Text = "Связь · " + (model.IsVerified ? "Подключено" : model.IsProcessRunning ? "Не проверено" : "Отключено");
+        void UpdateTray() => tray.Text = "Связь · Discord: " + (model.IsVerified ? "вкл" : model.IsProcessRunning ? "?" : "выкл") +
+            " · Telegram: " + (model.Telegram.IsRunning ? "вкл" : "выкл");
+        model.PropertyChanged += (_, _) => UpdateTray();
+        model.Telegram.PropertyChanged += (_, _) => UpdateTray();
         Loaded += async (_, _) =>
         {
             if (initialized) return;

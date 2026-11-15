@@ -1,4 +1,4 @@
-# Связь 0.3
+# Связь 0.4
 
 Windows 10/11 x64 application for automatic selection of Flowseal zapret strategies,
 using Discord API, Gateway Hello (opcode 10), and voice WebSocket Hello (opcode 8)
@@ -67,7 +67,7 @@ must be tested on a Windows machine; document the gap if none is available.
 
 Always preserve previous working state and distinguish unknown from success.
 Never read Discord tokens, execute arbitrary scripts, alter other project files,
-publish externally, or call unverified network access a completed voice connection.
+publish externally without user authorization, or call unverified network access a completed voice connection.
 
 ## 0.2 migration acceptance
 
@@ -103,3 +103,22 @@ Use fixed HTTPS origin, no redirects, bounded fetch, CIDR validation and atomic
 replacement. Recheck after six hours on connection; preserve valid cache on errors.
 No cache means explicit failure, never empty/any-address filtering. Discord checks
 do not prove game connectivity; state that in the settings and documentation.
+# Telegram / tg-ws-proxy (0.4.0)
+
+Отдельная вкладка Telegram, независимая от Discord. Официальный Windows x64 EXE
+Flowseal tg-ws-proxy загружается при первом запуске с проверкой SHA-256 GitHub.
+Прокси слушает только 127.0.0.1; случайный secret сохраняется между запусками.
+Порт, запуск/остановка, открытие tg://proxy, копирование ссылки, ручное обновление
+и необязательный запуск вместе со «Связью». При общем выходе завершаются оба
+управляемых процесса. Чужой экземпляр не завершается и не перенастраивается.
+
+Компонент работает в portable-режиме и сохраняет собственный трей. Его отдельные
+автозапуск и автообновление отключены; обновления выполняет «Связь», при включённом
+общем автообновлении — не чаще 6 часов и только когда прокси остановлен. Неудачная
+новая версия не вытесняет предыдущую до проверки локального порта. Отмена не
+запускает откат. Отображается готовность локального прокси, а не успех Telegram.
+Подключение прокси подтверждается пользователем в Telegram; аккаунт не читается.
+
+Основание: Flowseal/tg-ws-proxy v1.11.4, commit
+6690b788432fd0f59b0f38e228494bcd6bede1ca; docs/RU/README.windows.md,
+utils/tray_common.py, utils/default_config.py, windows.py. Лицензия MIT сохраняется.

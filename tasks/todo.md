@@ -12,3 +12,7 @@
 - [x] 0.3: upstream Game Filter modes/custom ports, persistent settings and verified cached IPSet.
 - [ ] Windows runtime smoke test (requires Windows).
 - [ ] Actual signing with a trusted publisher certificate (not available).
+
+- [x] 0.4: managed Telegram proxy, verified downloads, stable local key and portable config.
+- [x] 0.4: independent tab, startup option, update fallback and owned process cleanup.
+- [ ] 0.4: Windows CI integration and final release verification.

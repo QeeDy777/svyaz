@@ -148,7 +148,7 @@ public sealed class PackageStore(string directory, Action<string> log)
         }
     }
 
-    private static async Task<HttpResponseMessage> GetAsync(Uri uri, CancellationToken ct)
+    internal static async Task<HttpResponseMessage> GetAsync(Uri uri, CancellationToken ct)
     {
         for (var attempt = 0; attempt < 5; attempt++)
         {
@@ -177,7 +177,7 @@ public sealed class PackageStore(string directory, Action<string> log)
         throw new InvalidDataException("Слишком много перенаправлений GitHub.");
     }
 
-    private static async Task<byte[]> ReadLimitedAsync(HttpResponseMessage response, long limit, CancellationToken ct)
+    internal static async Task<byte[]> ReadLimitedAsync(HttpResponseMessage response, long limit, CancellationToken ct)
     {
         if (response.Content.Headers.ContentLength > limit) throw new InvalidDataException("Ответ сервера слишком большой.");
         await using var input = await response.Content.ReadAsStreamAsync(ct);

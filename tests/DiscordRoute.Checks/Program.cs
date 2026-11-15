@@ -19,6 +19,8 @@ void Reject(Action action, string name)
 }
 
 IconChecks.Run(Check);
+TelegramChecks.Run(Check);
+await TelegramPackageChecks.RunAsync(Check, args.Contains("--telegram-smoke"));
 await GameFilterChecks.RunAsync(Check);
 var ui = new PresentationState();
 Check(!ui.ShowDisconnect && ui.PrimaryActionLabel == "Подключить", "Idle primary action connects");
@@ -178,24 +180,25 @@ try
     try { await session.ConnectAsync(oldPackage, nextPackage, _ => Task.FromResult(pass), null, default); throw new Exception("Expected save failure"); }
     catch (IOException) { Check(sessionState.ActivePackage == "old" && fake.CurrentPackage == "old" && fake.IsRunning, "State save failure restores previous process"); }
     await LocalProtocolChecks.RunAsync(Check);
-    if (args.Length > 0)
+    var fixtures = args.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
+    if (fixtures.Length > 0)
     {
-        var files = Directory.GetFiles(args[0], "general*.bat");
+        var files = Directory.GetFiles(fixtures[0], "general*.bat");
         Check(files.Length > 10, "Actual upstream fixture present");
         foreach (var file in files)
         {
-            Check(Strategy.Parse(File.ReadAllText(file), args[0]).Count > 10, Path.GetFileName(file));
+            Check(Strategy.Parse(File.ReadAllText(file), fixtures[0]).Count > 10, Path.GetFileName(file));
             foreach (var mode in new[] { GameFilterMode.All, GameFilterMode.Tcp, GameFilterMode.Udp })
             {
-                var parsed = Strategy.Parse(File.ReadAllText(file), args[0], new() { Mode = mode }, Path.Combine(root, "game-ipset.txt"));
+                var parsed = Strategy.Parse(File.ReadAllText(file), fixtures[0], new() { Mode = mode }, Path.Combine(root, "game-ipset.txt"));
                 Check(parsed.Any(argument => argument.Contains("1024-65535", StringComparison.Ordinal)) &&
                     parsed.Contains("--ipset=" + Path.Combine(root, "game-ipset.txt")), Path.GetFileName(file) + " / " + mode);
             }
         }
     }
-    if (args.Length > 1)
+    if (fixtures.Length > 1)
     {
-        PackageStore.Extract(File.ReadAllBytes(args[1]), Path.Combine(root, "official-release"));
+        PackageStore.Extract(File.ReadAllBytes(fixtures[1]), Path.Combine(root, "official-release"));
         Check(Directory.GetFiles(Path.Combine(root, "official-release"), "winws.exe", SearchOption.AllDirectories).Length == 1, "Extract actual official ZIP");
     }
     if (args.Contains("--github-smoke"))

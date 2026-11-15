@@ -13,6 +13,9 @@ public sealed class AppState
     public DateTimeOffset VoiceObservedAt { get; set; }
     public bool AutoUpdate { get; set; } = true;
     public GameFilterSettings GameFilter { get; set; } = new();
+    public TelegramSettings Telegram { get; set; } = new();
+    public string? TelegramActivePackage { get; set; }
+    public string? TelegramPendingPackage { get; set; }
     public bool AutostartConfigured { get; set; }
     public DateTimeOffset LastUpdateCheck { get; set; }
 
