@@ -35,6 +35,10 @@ internal static class WindowsChecks
                 }
                 var model = (MainViewModel)window.DataContext;
                 Check(model.RepairCommand.CanExecute(null) && model.ExportDiagnosticsCommand.CanExecute(null), "Repair and safe diagnostics actions available");
+                Check(!model.ShowRepair, "Idle screen avoids a duplicate repair action");
+                model.HasError = true;
+                Check(model.ShowRepair, "Repair action appears when connection needs attention");
+                model.HasError = false;
                 Check(model.DiscordSummary.Contains("выключен") && model.Telegram.Summary.Contains("выключен"), "Separate service status starts disconnected");
                 Check(model.ConnectionTime.Contains("не запущено") && model.LastCheck.Contains("пока нет"), "No invented connection time or successful check");
                 Check(model.AppUpdates.CurrentNotes.Contains("0.7.0") && model.AppUpdates.EarlierNotes.Contains("0.6.1"), "Release history available offline");
@@ -64,7 +68,19 @@ internal static class WindowsChecks
 
     private static void SaveScreenshot(Window window, string name)
     {
+        // Fluent expanders animate on first display; render their settled state.
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        var settle = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        settle.Tick += (_, _) => { settle.Stop(); frame.Continue = false; };
+        settle.Start();
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
         window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        if (name == "settings")
+        {
+            var notes = (TextBlock)window.FindName("CurrentNotesBlock");
+            var history = (Expander)window.FindName("ReleaseHistory");
+            Check(notes.TranslatePoint(new Point(0, 0), history).Y >= 35, "Release notes begin below the expander header after animation");
+        }
         var content = (FrameworkElement)window.Content;
         content.UpdateLayout();
         var bitmap = new RenderTargetBitmap(440, 680, 96, 96, PixelFormats.Pbgra32);

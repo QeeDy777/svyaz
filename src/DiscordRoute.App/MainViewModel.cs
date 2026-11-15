@@ -45,6 +45,8 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     public string GameFilterFeedback { get; private set => Set(ref field, value); } = "";
     private DateTimeOffset? lastSuccessfulCheck;
     private string? networkId;
+    public bool ShowRepair => IsProcessRunning || HasError;
+    public bool HasLastCheck => lastSuccessfulCheck != null;
     public string CurrentStrategy => IsProcessRunning ? runner.StrategyName ?? "Подбор…" : "—";
     public string DiscordSummary => IsBusy ? "Discord · проверка…" : IsVerified ? "Discord · сервер отвечает" : IsProcessRunning ? "Discord · не проверен" : "Discord · выключен";
     public string ConnectionTime => runner.StartedAt is { } at && IsProcessRunning ? "Подключено " + Math.Max(0, (int)(DateTimeOffset.UtcNow - at).TotalMinutes) + " мин" : "Подключение не запущено";
