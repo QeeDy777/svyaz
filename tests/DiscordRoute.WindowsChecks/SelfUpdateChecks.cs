@@ -104,6 +104,8 @@ internal static class SelfUpdateChecks
             }
         }
         finally { Directory.Delete(blocked); }
+        updater.SelectForLaunch(true);
+        check(updater.Read("rollback") == null, "Explicitly re-enabling automatic updates releases rollback selection");
         updater.Promote(candidate);
         check(updater.Read("rollback") == null && updater.Read("current") == candidate, "Explicit upgrade clears rollback selection");
     }

@@ -38,6 +38,10 @@ internal static class WindowsChecks
                 Check(model.DiscordSummary.Contains("выключен") && model.Telegram.Summary.Contains("выключен"), "Separate service status starts disconnected");
                 Check(model.ConnectionTime.Contains("не запущено") && model.LastCheck.Contains("пока нет"), "No invented connection time or successful check");
                 Check(model.AppUpdates.CurrentNotes.Contains("0.7.0") && model.AppUpdates.EarlierNotes.Contains("0.6.1"), "Release history available offline");
+                model.Report(new("fixture", "unused"), new(new(true, "sensitive-sentinel"), new(true, "sensitive-sentinel"), new(false, "sensitive-sentinel")), "Failed");
+                model.ShowServiceResults(null);
+                var report = model.CreateDiagnosticReport();
+                Check(report.VoicePassed == false && !report.ToJson().Contains("sensitive-sentinel"), "Diagnostics retain failed probes after UI reset without exporting raw details");
                 var network = CurrentNetwork.Read();
                 Check(network?.Length == 64, "Connected Windows CI network provides a hashed NLM identity");
                 Console.WriteLine("NLM profile detected: " + (network != null));

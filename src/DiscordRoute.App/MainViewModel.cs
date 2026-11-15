@@ -51,6 +51,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     public string LastCheck => lastSuccessfulCheck is { } at ? "Успешная проверка · " + at.ToLocalTime().ToString("dd.MM HH:mm") : "Успешных проверок пока нет";
     public string NetworkSummary => networkId == null ? "Сеть не определена · обычный подбор" : preferences.NetworkStrategies.TryGetValue(networkId, out var strategy) ? "Для этой сети сохранён " + strategy : "Запомним альт после успешной проверки";
     private int? lastError;
+    private ProbeResult? lastProbe;
     public string DiagnosticFeedback { get; private set => Set(ref field, value); } = "Версия, результаты проверок и коды ошибок. Без ключей, адресов и исходных журналов.";
     public UiCommand ExportDiagnosticsCommand { get; }
     public UiCommand RepairCommand { get; }
@@ -118,10 +119,8 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     }
 
     internal DiagnosticReport CreateDiagnosticReport() => new(AppUpdater.RunningVersion, Environment.OSVersion.Version,
-        runner.IsRunning, IsVerified, Telegram.IsRunning, Passed(Api), Passed(Gateway), Passed(Voice),
+        runner.IsRunning, IsVerified, Telegram.IsRunning, lastProbe?.Api.Success, lastProbe?.Gateway.Success, lastProbe?.Voice.Success,
         lastSuccessfulCheck, Results.Count, lastError, Telegram.LastError);
-
-    private static bool? Passed(ServiceCheck check) => check.Kind switch { CheckKind.Passed => true, CheckKind.Failed => false, _ => null };
 
     private Task ExportDiagnosticsAsync()
     {
@@ -307,6 +306,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         Log("Проверяем голосовой сервер: " + endpoint.Authority);
         IsVerified = false;
         Results.Clear();
+        lastProbe = null;
         SetStatus("Проверяем стратегии. Это может занять несколько минут…");
         var session = new ConnectionSession(runner, state, Save, Report, Log);
         var selected = await session.ConnectAsync(active, pending, new DiscordProbe(endpoint).RunAsync, manual, ct, preferred);
@@ -372,8 +372,9 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         });
     }
 
-    private void Report(Strategy item, ProbeResult? probe, string outcome)
+    internal void Report(Strategy item, ProbeResult? probe, string outcome)
     {
+        if (probe != null) lastProbe = probe;
         ShowServiceResults(probe, checking: probe == null && !outcome.StartsWith("Ошибка", StringComparison.Ordinal));
         var row = new StrategyResult(item.Name, probe?.Api.Detail ?? "—", probe?.Gateway.Detail ?? "—", probe?.Voice.Detail ?? "—", outcome);
         var existing = Results.FirstOrDefault(r => r.Name == item.Name);

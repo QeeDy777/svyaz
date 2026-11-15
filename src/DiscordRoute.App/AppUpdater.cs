@@ -67,6 +67,7 @@ internal sealed class AppUpdater(string installRoot, string dataRoot)
     public InstalledApp? SelectForLaunch(bool applyPending)
     {
         var rollback = Read("rollback");
+        if (applyPending && rollback != null) File.Delete(StatePath("rollback"));
         if (!applyPending && rollback != null && rollback == Read("current") && AppUpdatePackage.ParseVersion(rollback.Version) < RunningVersion)
             return rollback;
         var pending = applyPending ? Read("pending") : null;
