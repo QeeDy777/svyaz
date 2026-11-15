@@ -58,7 +58,7 @@ internal static class SelfUpdateChecks
             check(updater.Read("current") == candidate, "Rejecting a failed candidate preserves the previous current version");
             updater.Reject(candidate);
             check(updater.Read("current") == null && updater.Read("rejected") == candidate && File.Exists(installedExe), "Failed startup rejects the candidate but preserves runtime files");
-            if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true") CheckRealWindow(installedExe, check);
+            if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true") CheckRealWindow(installedExe, check, telegram: true);
             var pointer = Path.Combine(data, "AppUpdate", "current.json");
             File.WriteAllText(pointer, "{\"Version\":\"0.5.0\",\"Id\":\"../evil\"}");
             try { updater.Read("current"); throw new Exception("Unsafe update pointer accepted"); }
@@ -110,24 +110,66 @@ internal static class SelfUpdateChecks
         check(updater.Read("rollback") == null && updater.Read("current") == candidate, "Explicit upgrade clears rollback selection");
     }
 
-    private static void CheckRealWindow(string installedExe, Action<bool, string> check)
+    private static void CheckRealWindow(string installedExe, Action<bool, string> check, bool telegram = false)
     {
         // Only the disposable CI machine may use the application's real Program Files data directory.
         var settings = Path.Combine(DiscordRoute.App.Program.DataRoot, "settings.json");
         if (File.Exists(settings)) throw new IOException("Self-update CI requires an unused settings path");
-        new AppState { AutoUpdate = false, AutostartConfigured = true }.Save(settings);
+        var telegramSettings = new TelegramSettings().WithSecret();
+        if (telegram)
+        {
+            var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+            listener.Start();
+            telegramSettings = telegramSettings with { Port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port };
+            listener.Stop();
+        }
+        var config = TelegramSettings.ConfigurationPath(Path.Combine(DiscordRoute.App.Program.DataRoot, "Telegram"));
+        var previousConfig = File.Exists(config) ? File.ReadAllBytes(config) : null;
+        new AppState { AutoUpdate = false, AutostartConfigured = true, Telegram = telegramSettings }.Save(settings);
+        if (telegram)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(config)!);
+            File.WriteAllText(config, telegramSettings.Configuration("{\"pool_size\":0,\"cfproxy\":false}"));
+        }
         try
         {
             try
             {
-                UpdateHandoff.Start(installedExe, [], () => throw new CommitFailure(), TimeSpan.FromSeconds(30));
+                UpdateHandoff.Start(installedExe, telegram ? ["--resume-telegram"] : [], () =>
+                {
+                    if (telegram)
+                    {
+                        var deadline = DateTime.UtcNow.AddSeconds(15);
+                        var connected = false;
+                        while (!connected && DateTime.UtcNow < deadline)
+                        {
+                            using var client = new System.Net.Sockets.TcpClient();
+                            try
+                            {
+                                client.ConnectAsync(System.Net.IPAddress.Loopback, telegramSettings.Port).WaitAsync(TimeSpan.FromMilliseconds(300)).GetAwaiter().GetResult();
+                                connected = true;
+                            }
+                            catch (Exception ex) when (ex is System.Net.Sockets.SocketException or TimeoutException) { Thread.Sleep(100); }
+                        }
+                        check(connected, "Published single-file EXE starts its embedded Telegram engine after update handoff");
+                    }
+                    throw new CommitFailure();
+                }, TimeSpan.FromSeconds(30));
                 throw new Exception("Real published application did not acknowledge startup");
             }
             catch (CommitFailure) { check(true, "Published EXE opens its window; failed promotion terminates the candidate for rollback"); }
             check(!System.Text.Json.JsonSerializer.Deserialize<AppState>(File.ReadAllText(settings))!.AutoUpdate,
                 "Restart preserves disabled updates and existing settings");
         }
-        finally { File.Delete(settings); }
+        finally
+        {
+            File.Delete(settings);
+            if (telegram)
+            {
+                if (previousConfig == null) File.Delete(config);
+                else File.WriteAllBytes(config, previousConfig);
+            }
+        }
     }
 
     private sealed class CommitFailure : Exception;

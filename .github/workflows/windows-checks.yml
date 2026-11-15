@@ -31,6 +31,8 @@ jobs:
           $env:PYTHONPATH = "$pwd/dist/telegram-test-runtime"
           python tests/telegram_embed_checks.py
           if ($LASTEXITCODE -ne 0) { throw 'Embedded engine tests failed' }
+          python tests/telegram_embed_checks.py --stress
+          if ($LASTEXITCODE -ne 0) { throw 'Embedded engine stress checks failed' }
       - name: Build portable archive
         shell: pwsh
         run: ./build.ps1

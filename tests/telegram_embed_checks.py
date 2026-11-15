@@ -1,4 +1,5 @@
 import asyncio
+import gc
 import hashlib
 import json
 import os
@@ -9,6 +10,7 @@ import sys
 import threading
 import time
 import unittest
+import warnings
 from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'telegram'))
@@ -190,4 +192,17 @@ class EmbeddedChecks(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    if '--stress' in sys.argv:
+        unraisable = []
+        sys.unraisablehook = lambda event: unraisable.append(str(event.exc_value))
+        warnings.simplefilter('error', ResourceWarning)
+        for iteration in range(30):
+            result = unittest.TestResult()
+            unittest.defaultTestLoader.loadTestsFromTestCase(EmbeddedChecks).run(result)
+            gc.collect()
+            if not result.wasSuccessful() or unraisable:
+                print(result.errors, result.failures, unraisable)
+                raise SystemExit(1)
+        print('240 checks passed; no leaked transports or unraisable cleanup errors')
+    else:
+        unittest.main()
