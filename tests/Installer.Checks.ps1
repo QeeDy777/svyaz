@@ -29,13 +29,22 @@ $shortcut = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'Связ
 Assert (Test-Path $shortcut) 'Start menu shortcut installed'
 $shell = New-Object -ComObject WScript.Shell
 Assert ($shell.CreateShortcut($shortcut).TargetPath -eq "$application\Связь.exe") 'Shortcut targets stable application path'
+Remove-Item "$root/Versions/$($current.Id)/wpfgfx_cor3.dll"
 Install repair
+Assert (Test-Path "$root/Versions/$($current.Id)/wpfgfx_cor3.dll") 'Repair restores missing runtime DLL'
 Assert ([IO.File]::ReadAllText("$root/Data/settings.json") -ceq $settings) 'Repair preserves settings exactly'
 $ownName = 'DiscordRoute-CI-owned'
 $foreignName = 'DiscordRoute-CI-foreign'
 try {
     Register-ScheduledTask -TaskName $ownName -Action (New-ScheduledTaskAction -Execute "$root/Versions/$($current.Id)/Связь.exe") -Force | Out-Null
     Register-ScheduledTask -TaskName $foreignName -Action (New-ScheduledTaskAction -Execute "$env:SystemRoot/System32/notepad.exe") -Force | Out-Null
+    $legacyName = 'DiscordRoute-CI-legacy'
+    Register-ScheduledTask -TaskName $legacyName -Action (New-ScheduledTaskAction -Execute "$root/Versions/old/Связь.exe" -Argument '--startup') -Trigger (New-ScheduledTaskTrigger -AtLogOn) -Force | Out-Null
+    Disable-ScheduledTask -TaskName $legacyName | Out-Null
+    Install migrate
+    $migrated = Get-ScheduledTask -TaskName $legacyName
+    Assert ($migrated.Actions.Execute -eq "$root/Versions/$($current.Id)/Связь.exe") 'Legacy autostart migrated without opening app'
+    Assert ($migrated.Actions.Arguments -eq '--startup' -and $migrated.State -eq 'Disabled') 'Autostart arguments and disabled state preserved'
     $uninstaller = (Get-ChildItem $root -Filter 'unins*.exe' | Select-Object -First 1).FullName
     $log = Join-Path $PWD 'dist/installer-uninstall.log'
     $process = Start-Process $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$log`"") -PassThru -Wait
@@ -50,7 +59,7 @@ try {
     Assert ([IO.File]::ReadAllText("$root/Data/settings.json") -ceq $settings) 'Reinstall preserves settings exactly'
 }
 finally {
-    foreach ($name in @($ownName, $foreignName)) {
+    foreach ($name in @($ownName, $foreignName, 'DiscordRoute-CI-legacy')) {
         if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) { Unregister-ScheduledTask -TaskName $name -Confirm:$false }
     }
 }
