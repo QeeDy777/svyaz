@@ -5,10 +5,10 @@ internal static class ConvenienceChecks
     public static void Run(Action<bool, string> check)
     {
         var report = new DiagnosticReport(new Version(0, 7, 0), new Version(10, 0, 26100), true, false, true,
-            true, false, null, null, 3, unchecked((int)0x80004005), null).ToJson();
+            true, false, null, null, 3, unchecked((int)0x80004005), null, true, false).ToJson();
         using var json = System.Text.Json.JsonDocument.Parse(report);
         var fields = json.RootElement.EnumerateObject().Select(p => p.Name).ToArray();
-        check(fields.SequenceEqual(new[] { "AppVersion", "WindowsVersion", "DiscordProcessRunning", "DiscordVerified", "TelegramProcessRunning", "ApiPassed", "GatewayPassed", "VoicePassed", "LastSuccessfulCheck", "TestedStrategies", "LastDiscordError", "LastTelegramError" }), "Diagnostic export has only reviewed safe fields");
+        check(fields.SequenceEqual(new[] { "AppVersion", "WindowsVersion", "DiscordProcessRunning", "DiscordVerified", "TelegramProcessRunning", "ApiPassed", "GatewayPassed", "VoicePassed", "LastSuccessfulCheck", "TestedStrategies", "LastDiscordError", "LastTelegramError", "YouTubeSitePassed", "YouTubeGoogleVideoPassed" }), "Diagnostic export has only reviewed safe fields");
         check(json.RootElement.GetProperty("VoicePassed").ValueKind == System.Text.Json.JsonValueKind.Null && !json.RootElement.GetProperty("GatewayPassed").GetBoolean(), "Diagnostic export distinguishes failed and untested checks");
         var home = Guid.NewGuid(); var mobile = Guid.NewGuid();
         var homeId = NetworkProfiles.Identity([home]); var mobileId = NetworkProfiles.Identity([mobile]);

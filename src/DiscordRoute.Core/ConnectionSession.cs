@@ -30,7 +30,7 @@ public sealed class ConnectionSession(IStrategyRunner runner, AppState state, Ac
                 if (pending != null && package.Id != pending.Id) log("Новый пакет не прошёл проверку. Используется предыдущий.");
                 return selected;
             }
-            throw new IOException("Ни одна стратегия не прошла все проверки Discord дважды. Рабочий альт не найден.");
+            throw new IOException("Ни одна стратегия не прошла все проверки Discord и YouTube дважды. Рабочий альт не найден.");
         }
         catch
         {

@@ -22,6 +22,7 @@ ConvenienceChecks.Run(Check);
 IconChecks.Run(Check);
 TelegramChecks.Run(Check);
 AppUpdateChecks.Run(Check);
+await YouTubeChecks.RunAsync(Check, args.Contains("--youtube-smoke"));
 await TelegramPackageChecks.RunAsync(Check, args.Contains("--telegram-smoke"));
 await GameFilterChecks.RunAsync(Check);
 var ui = new PresentationState();
@@ -39,14 +40,16 @@ Check(!ui.IsVerified && ui.Badge == "НЕ ПРОВЕРЕНО", "Running process 
 ui.IsBusy = true;
 Check(!ui.CanEdit && ui.StopLabel == "Отменить и отключить" && uiNotifications == 2, "Busy state disables editing and notifies bindings");
 ui.ShowServiceResults(null, checking: true);
-Check(ui.Voice.Kind == CheckKind.Checking, "Voice shows pending while probe runs");
-ui.ShowServiceResults(new(new(true, "API OK"), new(true, "Gateway OK"), new(false, "Voice failed")));
+Check(ui.Voice.Kind == CheckKind.Checking && ui.YouTube.Kind == CheckKind.Checking, "Voice shows pending while probe runs");
+ui.ShowServiceResults(new(new(true, "API OK"), new(true, "Gateway OK"), new(false, "Voice failed"), new(new(true, "site"), new(true, "video"))));
 Check(ui.Api.Kind == CheckKind.Passed && ui.Voice.Kind == CheckKind.Failed && ui.Voice.Detail == "Voice failed", "UI preserves separate voice failure and diagnostics");
+ui.ShowServiceResults(new(new(true, "API OK"), new(true, "Gateway OK"), new(true, "Voice OK"), new(new(true, "site"), new(false, "video blocked"))));
+Check(ui.YouTube.Kind == CheckKind.Failed && ui.Voice.Kind == CheckKind.Passed && ui.YouTube.Detail.Contains("video blocked"), "UI keeps a separate YouTube failure and endpoint details");
 ui.IsBusy = false;
 ui.ShowServiceResults(null);
-Check(ui.CanEdit && ui.Voice.Kind == CheckKind.Idle, "Cancellation clears pending results");
+Check(ui.CanEdit && ui.Voice.Kind == CheckKind.Idle && ui.YouTube.Kind == CheckKind.Idle, "Cancellation clears pending results");
 ui.IsVerified = true;
-Check(ui.Heading == "Discord доступен" && ui.Badge == "ПРОВЕРКИ ПРОЙДЕНЫ", "Verified state has explicit success label");
+Check(ui.Heading == "Discord и YouTube\nотвечают" && ui.Badge == "ПРОВЕРКИ ПРОЙДЕНЫ", "Verified state has explicit success label");
 var commandCalls = 0;
 var command = new UiCommand(() => { commandCalls++; return Task.CompletedTask; }, () => ui.CanEdit);
 ui.IsBusy = true; command.Execute(null);
@@ -147,8 +150,8 @@ try
         xml.Descendants(taskNs + "ExecutionTimeLimit").Single().Value == "PT0S", "Interactive autostart has no three-day timeout");
 
     var good = new CheckResult(true, "OK");
-    var pass = new ProbeResult(good, good, good);
-    var fail = new ProbeResult(good, good, new(false, "No voice"));
+    var pass = new ProbeResult(good, good, good, new(good, good));
+    var fail = new ProbeResult(good, good, new(false, "No voice"), new(good, good));
     var a = new Strategy("A", "unused");
     var b = new Strategy("B", "unused");
     var fake = new FakeRunner();
@@ -156,6 +159,16 @@ try
     var engine = new SelectionEngine(fake, _ => Task.FromResult(++calls == 1 ? fail : pass), (_, _, _) => { });
     var chosen = await engine.SelectAsync(new("one", "1", root), [a, b], "B", default);
     Check(chosen == a && fake.Started.SequenceEqual(["B", "A"]) && fake.IsRunning && calls == 3, "Prefer saved strategy, require voice and two passes");
+    fake = new FakeRunner();
+    calls = 0;
+    var noVideo = pass with { YouTube = new(good, new(false, "Googlevideo blocked")) };
+    engine = new SelectionEngine(fake, _ => Task.FromResult(++calls == 2 ? noVideo : pass), (_, _, _) => { });
+    Check(await engine.SelectAsync(new("one", "1", root), [a, b], "A", default) == b && calls == 4,
+        "Discord success cannot hide YouTube failure on the second pass; next ALT is tested twice");
+    fake = new FakeRunner();
+    engine = new SelectionEngine(fake, _ => Task.FromResult(noVideo), (_, _, _) => { });
+    Check(await engine.SelectAsync(new("one", "1", root), [a], null, default) == null && !fake.IsRunning,
+        "No ALT is retained when YouTube fails despite Discord success");
     fake = new FakeRunner();
     engine = new SelectionEngine(fake, _ => Task.FromResult(fail), (_, _, _) => { });
     Check(await engine.SelectAsync(new("one", "1", root), [a], null, default) == null && !fake.IsRunning, "All failed leaves no process");

@@ -37,7 +37,7 @@
             </Setter>
         </Style>
         <DataTemplate DataType="{x:Type local:ServiceCheck}">
-            <Grid ToolTip="{Binding Detail}" Margin="0,9">
+            <Grid ToolTip="{Binding Detail}" Margin="0,6">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <TextBlock Text="{Binding Name}" FontSize="13"/>
                 <TextBlock Grid.Column="1" Text="{Binding Label}" FontSize="12">
@@ -85,12 +85,12 @@
             </StackPanel>
         </Border>
         <TabControl x:Name="MainTabs" Grid.Row="2" BorderThickness="0" Background="Transparent" HorizontalContentAlignment="Stretch">
-            <TabItem Header="Discord" Padding="10,12" AutomationProperties.Name="Подключение Discord">
+            <TabItem Header="Подключение" Padding="10,12" AutomationProperties.Name="Подключение Discord и YouTube">
                 <ScrollViewer Style="{StaticResource PageScrollViewer}" Foreground="{DynamicResource BrandInk}" FontSize="14" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="8,20,0,16">
                     <StackPanel>
                         <TextBlock Text="{Binding Heading}" FontSize="25" FontWeight="Medium" TextAlignment="Center" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" Margin="0,0,0,8"/>
                         <TextBlock Text="{Binding Status}" Style="{StaticResource SecondaryText}" TextAlignment="Center" LineHeight="21" MinHeight="44"/>
-                        <Grid Margin="0,16,0,16" HorizontalAlignment="Center">
+                        <Grid Margin="0,12,0,12" HorizontalAlignment="Center">
                             <Button Style="{StaticResource PowerButton}" Command="{Binding PrimaryCommand}" AutomationProperties.Name="{Binding PrimaryActionLabel}" ToolTip="{Binding PrimaryActionLabel}"/>
                         </Grid>
                         <TextBlock Text="{Binding PrimaryActionLabel}" TextAlignment="Center" FontWeight="SemiBold" Margin="0,0,0,12"/>
@@ -102,7 +102,9 @@
                             <ContentControl Content="{Binding Api}"/>
                             <ContentControl Content="{Binding Gateway}"/>
                             <ContentControl Content="{Binding Voice}"/>
+                            <ContentControl x:Name="YouTubeCheck" Content="{Binding YouTube}"/>
                         </StackPanel>
+                        <TextBlock Text="YouTube: ответ сайта и Googlevideo, без проверки воспроизведения." Style="{StaticResource SecondaryText}" FontSize="11" Margin="0,0,0,12"/>
                         <Button Content="Исправить подключение" Command="{Binding RepairCommand}" Visibility="{Binding ShowRepair, Converter={StaticResource VisibleIfTrue}}" Style="{StaticResource QuietButton}" Margin="0,0,0,12"/>
                         <TextBlock Text="{Binding ConnectionTime}" Visibility="{Binding IsProcessRunning, Converter={StaticResource VisibleIfTrue}}" Style="{StaticResource SecondaryText}" FontSize="12" TextAlignment="Center"/>
                         <TextBlock Text="{Binding LastCheck}" Visibility="{Binding HasLastCheck, Converter={StaticResource VisibleIfTrue}}" Style="{StaticResource SecondaryText}" FontSize="12" TextAlignment="Center" Margin="0,4,0,12"/>
@@ -121,6 +123,7 @@
                                                         <TextBlock Text="{Binding Api, StringFormat=API: {0}}" Style="{StaticResource SecondaryText}" FontSize="12"/>
                                                         <TextBlock Text="{Binding Gateway, StringFormat=Gateway: {0}}" Style="{StaticResource SecondaryText}" FontSize="12"/>
                                                         <TextBlock Text="{Binding Voice, StringFormat=Голос: {0}}" Style="{StaticResource SecondaryText}" FontSize="12"/>
+                                                        <TextBlock Text="{Binding YouTube, StringFormat=YouTube: {0}}" Style="{StaticResource SecondaryText}" FontSize="12"/>
                                                     </StackPanel>
                                                 </Border>
                                             </DataTemplate>

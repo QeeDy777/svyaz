@@ -5,9 +5,9 @@ using System.Text.Json;
 namespace DiscordRoute.Core;
 
 public sealed record CheckResult(bool Success, string Detail);
-public sealed record ProbeResult(CheckResult Api, CheckResult Gateway, CheckResult Voice)
+public sealed record ProbeResult(CheckResult Api, CheckResult Gateway, CheckResult Voice, YouTubeResult YouTube)
 {
-    public bool Success => Api.Success && Gateway.Success && Voice.Success;
+    public bool Success => Api.Success && Gateway.Success && Voice.Success && YouTube.Success;
 }
 
 public sealed class DiscordProbe(Uri voiceEndpoint)
@@ -16,9 +16,10 @@ public sealed class DiscordProbe(Uri voiceEndpoint)
     {
         var voice = MeasureAsync(async token => await DiscordProtocol.ReadHelloAsync(voiceEndpoint, 8, token), ct);
         var control = RunControlAsync(ct);
-        await Task.WhenAll(voice, control);
+        var youtube = YouTubeProbe.RunAsync(ct);
+        await Task.WhenAll(voice, control, youtube);
         var (api, gateway) = await control;
-        return new(api, gateway, await voice);
+        return new(api, gateway, await voice, await youtube);
     }
 
     public static async Task<(CheckResult Api, CheckResult Gateway)> RunControlAsync(CancellationToken ct)
@@ -43,7 +44,7 @@ public sealed class DiscordProbe(Uri voiceEndpoint)
         return (await api, await gateway);
     }
 
-    private static async Task<CheckResult> MeasureAsync(Func<CancellationToken, Task<bool>> check, CancellationToken ct)
+    internal static async Task<CheckResult> MeasureAsync(Func<CancellationToken, Task<bool>> check, CancellationToken ct)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(7));

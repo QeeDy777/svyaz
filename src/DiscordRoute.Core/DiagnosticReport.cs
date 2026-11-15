@@ -6,7 +6,8 @@ namespace DiscordRoute.Core;
 public sealed record DiagnosticReport(
     Version AppVersion, Version WindowsVersion, bool DiscordProcessRunning, bool DiscordVerified,
     bool TelegramProcessRunning, bool? ApiPassed, bool? GatewayPassed, bool? VoicePassed,
-    DateTimeOffset? LastSuccessfulCheck, int TestedStrategies, int? LastDiscordError, int? LastTelegramError)
+    DateTimeOffset? LastSuccessfulCheck, int TestedStrategies, int? LastDiscordError, int? LastTelegramError,
+    bool? YouTubeSitePassed, bool? YouTubeGoogleVideoPassed)
 {
     public string ToJson() => JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
 }

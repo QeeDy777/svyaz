@@ -1,7 +1,7 @@
 name: Windows checks
 on:
   push:
-    branches: [main, feature/convenience]
+    branches: [main, feature/youtube-check]
   pull_request:
   workflow_dispatch:
 

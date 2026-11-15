@@ -122,7 +122,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
 
     internal DiagnosticReport CreateDiagnosticReport() => new(AppUpdater.RunningVersion, Environment.OSVersion.Version,
         runner.IsRunning, IsVerified, Telegram.IsRunning, lastProbe?.Api.Success, lastProbe?.Gateway.Success, lastProbe?.Voice.Success,
-        lastSuccessfulCheck, Results.Count, lastError, Telegram.LastError);
+        lastSuccessfulCheck, Results.Count, lastError, Telegram.LastError, lastProbe?.YouTube.Site.Success, lastProbe?.YouTube.GoogleVideo.Success);
 
     private Task ExportDiagnosticsAsync()
     {
@@ -262,7 +262,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         var startedNetwork = networkId;
         var preferred = networkId != null && preferences.NetworkStrategies.TryGetValue(networkId, out var saved) ? saved : state.LastStrategy;
         var manual = repair || SelectedStrategy == AutomaticStrategy ? null : SelectedStrategy;
-        if (repair) Log("Восстановление: повторно проверяем все стратегии Discord.");
+        if (repair) Log("Восстановление: повторно проверяем все стратегии Discord и YouTube.");
         if (state.ActivePackage == null && state.PendingPackage == null) await UpdateAsync(true, ct);
         var active = packages.Open(state.ActivePackage);
         var pending = packages.Open(state.PendingPackage);
@@ -323,10 +323,10 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         lastSuccessfulCheck = DateTimeOffset.UtcNow;
         IsVerified = true;
         startupRetry = false;
-        SetStatus(selected.Name + " · голосовой сервер отвечает");
-        Log("Две проверки API, Gateway и голосового сервера прошли. Оставлена стратегия " + selected.Name);
+        SetStatus(selected.Name + " · Discord и YouTube отвечают");
+        Log("Два прохода проверок Discord и HTTPS YouTube прошли. Оставлена стратегия " + selected.Name);
         RefreshPackage();
-        Notify?.Invoke("Связь: подключено", selected.Name + ": голосовой сервер отвечает");
+        Notify?.Invoke("Связь: подключено", selected.Name + ": Discord и HTTPS YouTube отвечают");
     }
 
     private async Task RunAsync(Func<CancellationToken, Task> action)
@@ -378,10 +378,10 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     {
         if (probe != null) lastProbe = probe;
         ShowServiceResults(probe, checking: probe == null && !outcome.StartsWith("Ошибка", StringComparison.Ordinal));
-        var row = new StrategyResult(item.Name, probe?.Api.Detail ?? "—", probe?.Gateway.Detail ?? "—", probe?.Voice.Detail ?? "—", outcome);
+        var row = new StrategyResult(item.Name, probe?.Api.Detail ?? "—", probe?.Gateway.Detail ?? "—", probe?.Voice.Detail ?? "—", probe?.YouTube.Detail ?? "—", outcome);
         var existing = Results.FirstOrDefault(r => r.Name == item.Name);
         if (existing == null) Results.Add(row); else Results[Results.IndexOf(existing)] = row;
-        Log(item.Name + ": " + outcome + (probe == null ? "" : " | API: " + probe.Api.Detail + " | Gateway: " + probe.Gateway.Detail + " | Голос: " + probe.Voice.Detail));
+        Log(item.Name + ": " + outcome + (probe == null ? "" : " | API: " + probe.Api.Detail + " | Gateway: " + probe.Gateway.Detail + " | Голос: " + probe.Voice.Detail + " | YouTube: " + probe.YouTube.Detail));
     }
 
     private void RefreshPackage()

@@ -10,7 +10,7 @@ internal sealed record ServiceCheck(string Name, string Description, CheckKind K
 {
     public string Label => Kind switch { CheckKind.Passed => "Отвечает", CheckKind.Failed => "Не отвечает", CheckKind.Checking => "Проверяем…", _ => "Не проверено" };
 }
-internal sealed record StrategyResult(string Name, string Api, string Gateway, string Voice, string Outcome);
+internal sealed record StrategyResult(string Name, string Api, string Gateway, string Voice, string YouTube, string Outcome);
 
 internal class ObservableState : INotifyPropertyChanged
 {
@@ -40,17 +40,20 @@ internal class PresentationState : ObservableState
     public bool ShowDisconnect => IsBusy || IsProcessRunning;
     public string PrimaryActionLabel => IsBusy ? "Отменить и отключить" : IsProcessRunning ? "Отключить" : "Подключить";
     public string StopLabel => IsBusy ? "Отменить и отключить" : "Отключить";
-    public string Heading => IsBusy ? "Проверяем подключение" : IsVerified ? "Discord доступен" : HasError ? "Нужно ваше внимание" : IsProcessRunning ? "Процесс запущен" : "Всё начинается\nс одного нажатия.";
+    public string Heading => IsBusy ? "Проверяем подключение" : IsVerified ? "Discord и YouTube\nотвечают" : HasError ? "Нужно ваше внимание" : IsProcessRunning ? "Процесс запущен" : "Всё начинается\nс одного нажатия.";
     public string Badge => IsBusy ? "ВЫПОЛНЯЕТСЯ ОПЕРАЦИЯ" : IsVerified ? "ПРОВЕРКИ ПРОЙДЕНЫ" : IsProcessRunning ? "НЕ ПРОВЕРЕНО" : "НЕ ПОДКЛЮЧЕНО";
-    public string Status { get; set => Set(ref field, value); } = "Подберём стратегию и проверим ответ голосового сервера Discord.";
+    public string Status { get; set => Set(ref field, value); } = "Подберём стратегию для Discord и проверим HTTPS-соединение с YouTube.";
     public ServiceCheck Api { get; private set => Set(ref field, value); } = Make("API", "Доступ к Discord", null, false);
     public ServiceCheck Gateway { get; private set => Set(ref field, value); } = Make("Gateway", "Соединение с Discord", null, false);
     public ServiceCheck Voice { get; private set => Set(ref field, value); } = Make("Голосовой сервер", "Ответ сервера канала", null, false);
+    public ServiceCheck YouTube { get; private set => Set(ref field, value); } = Make("YouTube · HTTPS", "Сайт и Googlevideo; воспроизведение видео не проверяется", null, false);
     public void ShowServiceResults(ProbeResult? result, bool checking = false)
     {
         Api = Make("API", "Доступ к Discord", result?.Api, checking);
         Gateway = Make("Gateway", "Соединение с Discord", result?.Gateway, checking);
         Voice = Make("Голосовой сервер", "Ответ сервера канала", result?.Voice, checking);
+        YouTube = Make("YouTube · HTTPS", "Сайт и Googlevideo", result == null ? null :
+            new(result.YouTube.Success, result.YouTube.Detail + ". Воспроизведение видео не проверяется."), checking);
     }
     private static ServiceCheck Make(string name, string description, CheckResult? result, bool checking) =>
         new(name, description, result == null ? checking ? CheckKind.Checking : CheckKind.Idle : result.Success ? CheckKind.Passed : CheckKind.Failed,
