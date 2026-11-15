@@ -36,7 +36,14 @@ internal static class TelegramPython
                     Check(PyInitConfig_SetInt(config, "write_bytecode", 0));
                     Check(PyInitConfig_SetInt(config, "install_signal_handlers", 0));
                     Check(PyInitConfig_SetStr(config, "home", root));
-                    Check(PyInitConfig_SetStrList(config, "module_search_paths", 2, [Path.Combine(root, "python314.zip"), root]));
+                    var paths = new nint[2];
+                    try
+                    {
+                        paths[0] = Marshal.StringToCoTaskMemUTF8(Path.Combine(root, "python314.zip"));
+                        paths[1] = Marshal.StringToCoTaskMemUTF8(root);
+                        Check(PyInitConfig_SetStrList(config, "module_search_paths", 2, paths));
+                    }
+                    finally { foreach (var path in paths) Marshal.FreeCoTaskMem(path); }
                     Check(Py_InitializeFromInitConfig(config));
                 }
                 finally { PyInitConfig_Free(config); }
@@ -94,7 +101,7 @@ internal static class TelegramPython
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] private static extern int PyInitConfig_GetError(nint config, out nint error);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] private static extern int PyInitConfig_SetInt(nint config, [MarshalAs(UnmanagedType.LPUTF8Str)] string name, long value);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] private static extern int PyInitConfig_SetStr(nint config, [MarshalAs(UnmanagedType.LPUTF8Str)] string name, [MarshalAs(UnmanagedType.LPUTF8Str)] string value);
-    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] private static extern int PyInitConfig_SetStrList(nint config, [MarshalAs(UnmanagedType.LPUTF8Str)] string name, nuint length, [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.LPUTF8Str, SizeParamIndex = 2)] string[] values);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] private static extern int PyInitConfig_SetStrList(nint config, [MarshalAs(UnmanagedType.LPUTF8Str)] string name, nuint length, [In] nint[] values);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] private static extern int Py_InitializeFromInitConfig(nint config);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] private static extern nint PyEval_SaveThread();
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] private static extern int PyGILState_Ensure();

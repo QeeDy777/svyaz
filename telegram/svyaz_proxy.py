@@ -16,9 +16,38 @@ _loop = None
 _task = None
 _error = None
 _stopping = False
+_refresh_stop = threading.Event()
+_refresh_lock = threading.Lock()
 
 # Upstream logs contain proxy secrets and peer addresses; expose only error classes.
 logging.getLogger('tg-mtproto-proxy').disabled = True
+
+
+def _start_domain_refresh():
+    global _refresh_stop
+    with _refresh_lock:
+        _refresh_stop.set()
+        stop = _refresh_stop = threading.Event()
+        config.balancer.update_domains_list(config.CFPROXY_DEFAULT_DOMAINS)
+    if not config.proxy_config.fallback_cfproxy:
+        return
+
+    def refresh():
+        while not stop.is_set():
+            domains = config._normalize_domain_pool(config._fetch_cfproxy_domain_list())
+            # An old bounded HTTP fetch may finish after stop/restart; never publish it.
+            with _refresh_lock:
+                if stop.is_set() or config.proxy_config.cfproxy_user_domains:
+                    return
+                if len(domains) >= config._CFPROXY_MIN_VALID_DOMAINS:
+                    config.balancer.update_domains_list(domains)
+            if stop.wait(3600):
+                return
+
+    threading.Thread(target=refresh, name='Svyaz Telegram domains', daemon=True).start()
+
+
+engine.start_cfproxy_domain_refresh = _start_domain_refresh
 
 
 def configure(raw):
@@ -42,9 +71,12 @@ def configure(raw):
         if type(value) is not bool:
             raise ValueError(key)
         setattr(pc, attr, value)
-    for key, attr in [('cfproxy_user_domain', 'cfproxy_user_domains'), ('cfproxy_worker_domain', 'cfproxy_worker_domains')]:
+    for key, attr, enabled_key in [('cfproxy_user_domain', 'cfproxy_user_domains', 'cfproxy_user_domain_enabled'), ('cfproxy_worker_domain', 'cfproxy_worker_domains', 'cfproxy_worker_enabled')]:
         domains = config.coerce_domain_list(data.get(key, []))
-        setattr(pc, attr, domains if data.get(key + '_enabled', bool(domains)) else [])
+        enabled = data.get(enabled_key, bool(domains))
+        if type(enabled) is not bool:
+            raise ValueError(enabled_key)
+        setattr(pc, attr, domains if enabled else [])
     pc.fake_tls_domain, pc.proxy_protocol = '', False
 
 
@@ -70,12 +102,18 @@ def _run():
             # Upstream's cleanup begins after warmup; cover cancellation before it.
             if engine._server_instance is not None:
                 engine._server_instance.close()
+                engine._server_instance.abort_clients()
+                clients = list(engine._client_tasks)
+                for task in clients:
+                    task.cancel()
+                await asyncio.gather(*clients, return_exceptions=True)
                 await engine._server_instance.wait_closed()
             await engine.ws_pool.close()
             await engine.cf_worker_pool.close()
             if engine.cf_h2_pool is not None:
                 await engine.cf_h2_pool.close()
                 engine.cf_h2_pool = None
+            await asyncio.sleep(0)
     try:
         asyncio.run(serve())
     except asyncio.CancelledError:
@@ -83,6 +121,8 @@ def _run():
     except BaseException as error:
         _error = type(error).__name__
     finally:
+        with _refresh_lock:
+            _refresh_stop.set()
         config._refresh_stop.set()
         # Cancellation can arrive during upstream warmup, before its try/finally.
         engine._server_instance = None
@@ -92,6 +132,8 @@ def _run():
 def stop():
     global _stopping
     _stopping = True
+    with _refresh_lock:
+        _refresh_stop.set()
     if _loop is not None and _task is not None:
         try:
             _loop.call_soon_threadsafe(_task.cancel)

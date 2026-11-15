@@ -6,6 +6,7 @@ from pathlib import Path
 import socket
 import struct
 import sys
+import threading
 import time
 import unittest
 from unittest.mock import AsyncMock, patch
@@ -43,6 +44,13 @@ class EmbeddedChecks(unittest.TestCase):
         host.stop()
         self.until(lambda: not json.loads(host.status())['alive'])
 
+    def assert_port_released(self):
+        with socket.socket() as sock:
+            if os.name != 'nt':
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(('127.0.0.1', self.port))
+            sock.listen()
+
     def test_start_stop_restart_and_loopback(self):
         for _ in range(3):
             host.start(self.raw)
@@ -51,8 +59,7 @@ class EmbeddedChecks(unittest.TestCase):
             with socket.create_connection(('127.0.0.1', self.port), timeout=2) as sock:
                 sock.sendall(b'invalid handshake')
             self.stop()
-            with socket.socket() as sock:
-                sock.bind(('127.0.0.1', self.port))
+            self.assert_port_released()
         self.assertNotIn('ui', sys.modules)
         self.assertNotIn('windows', sys.modules)
 
@@ -73,9 +80,43 @@ class EmbeddedChecks(unittest.TestCase):
         with patch.object(host.engine.ws_pool, 'warmup', side_effect=slow):
             host.start(self.raw)
             self.until(lambda: json.loads(host.status())['ready'])
-            self.stop()
-            with socket.socket() as sock:
-                sock.bind(('127.0.0.1', self.port))
+            with socket.create_connection(('127.0.0.1', self.port), timeout=2) as client:
+                client.sendall(b'\x10')
+                self.until(lambda: bool(host.engine._client_tasks))
+                self.stop()
+                self.assertEqual(client.recv(1), b'')
+            self.assert_port_released()
+
+    def test_stale_domain_fetch_cannot_replace_new_configuration(self):
+        fetching, release = threading.Event(), threading.Event()
+        def fetch():
+            fetching.set()
+            release.wait(3)
+            return ['old-a.example.com', 'old-b.example.com', 'old-c.example.com']
+        with patch.object(host.config, '_fetch_cfproxy_domain_list', side_effect=fetch), patch.object(host.config.balancer, 'update_domains_list') as update:
+            host.config.proxy_config.fallback_cfproxy = True
+            host.config.proxy_config.cfproxy_user_domains = []
+            host._start_domain_refresh()
+            self.assertTrue(fetching.wait(2))
+            worker = next(t for t in threading.enumerate() if t.name == 'Svyaz Telegram domains')
+            host.stop()
+            host.config.proxy_config.cfproxy_user_domains = ['chosen.example.com']
+            update.reset_mock()
+            release.set()
+            worker.join(2)
+            self.assertFalse(worker.is_alive())
+            update.assert_not_called()
+
+    def test_disabled_custom_relays_stay_disabled(self):
+        data = json.loads(self.raw)
+        data.update(cfproxy_worker_domain=['disabled.example.com'], cfproxy_worker_enabled=False,
+                    cfproxy_user_domain=['disabled.example.org'], cfproxy_user_domain_enabled=False)
+        host.configure(json.dumps(data))
+        self.assertEqual(host.config.proxy_config.cfproxy_worker_domains, [])
+        self.assertEqual(host.config.proxy_config.cfproxy_user_domains, [])
+        data['cfproxy_worker_enabled'] = True
+        host.configure(json.dumps(data))
+        self.assertEqual(host.config.proxy_config.cfproxy_worker_domains, ['disabled.example.com'])
 
     def test_invalid_settings_rejected_before_thread(self):
         for value in ({'port': True, 'secret': self.secret}, {'port': self.port, 'secret': 'x' * 32}, {'port': self.port, 'secret': self.secret, 'pool_size': 9999}):

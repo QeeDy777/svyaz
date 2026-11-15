@@ -18,6 +18,9 @@ internal static class TelegramRuntime
             resource.Position = 0;
             var root = Path.Combine(cacheRoot, digest);
             using var archive = new ZipArchive(resource);
+            for (var directory = new DirectoryInfo(cacheRoot); directory != null; directory = directory.Parent)
+                if (directory.Exists && (directory.Attributes & FileAttributes.ReparsePoint) != 0)
+                    throw new IOException("Каталог движка Telegram не должен быть ссылкой.");
             if (!Directory.Exists(root))
             {
                 Directory.CreateDirectory(cacheRoot);
@@ -32,10 +35,19 @@ internal static class TelegramRuntime
             if ((File.GetAttributes(cacheRoot) & FileAttributes.ReparsePoint) != 0 ||
                 (File.GetAttributes(root) & FileAttributes.ReparsePoint) != 0)
                 throw new IOException("Каталог движка Telegram не должен быть ссылкой.");
-            foreach (var directory in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories))
-                if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
-                    throw new IOException("Каталог движка Telegram изменён.");
-            if (Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Count() != archive.Entries.Count)
+            var directories = new Stack<string>();
+            directories.Push(root);
+            var fileCount = 0;
+            while (directories.TryPop(out var current))
+                foreach (var path in Directory.EnumerateFileSystemEntries(current))
+                {
+                    var attributes = File.GetAttributes(path);
+                    if ((attributes & FileAttributes.ReparsePoint) != 0)
+                        throw new IOException("Каталог движка Telegram изменён.");
+                    if ((attributes & FileAttributes.Directory) != 0) directories.Push(path);
+                    else fileCount++;
+                }
+            if (fileCount != archive.Entries.Count)
                 throw new IOException("Набор файлов движка Telegram изменён.");
             foreach (var entry in archive.Entries)
             {

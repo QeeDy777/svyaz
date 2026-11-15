@@ -158,6 +158,15 @@ internal static class WindowsChecks
         catch (OperationCanceledException) { Check(!runner.IsRunning, "cancelled start does not leave a proxy running"); }
         var runtime = TelegramRuntime.Prepare(Path.Combine(Program.DataRoot, "Telegram", "Embedded"));
         Check(!Directory.EnumerateFiles(runtime, "*.exe", SearchOption.AllDirectories).Any(), "embedded runtime contains no executable launchers");
+        var adapter = Path.Combine(runtime, "svyaz_proxy.py");
+        var originalAdapter = File.ReadAllBytes(adapter);
+        try
+        {
+            File.WriteAllText(adapter, "tampered");
+            try { TelegramRuntime.Prepare(Path.GetDirectoryName(runtime)!); throw new Exception("Tampered engine accepted"); }
+            catch (IOException) { Check(true, "modified extracted engine is rejected before native loading"); }
+        }
+        finally { File.WriteAllBytes(adapter, originalAdapter); }
     }
 
     private static void Check(bool success, string name)
