@@ -36,7 +36,7 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
     public bool IsRunning { get; private set; }
     public bool CanEdit => !IsBusy && !IsRunning;
     public string PrimaryLabel => IsBusy ? "Отменить" : IsRunning ? "Остановить прокси" : Recovery.Wanted ? "Отменить повторы" : "Запустить прокси";
-    public string Status { get; private set => Set(ref field, value); } = "Прокси работает внутри «Связи». Подключение Discord включается независимо.";
+    public string Status { get; private set => Set(ref field, value); } = "Прокси работает внутри «Связи». Его можно добавить к общей кнопке в настройках.";
     public string Version => "Встроенный движок Flowseal " + TelegramRuntime.Version;
     public string Endpoint => "127.0.0.1:" + state.Telegram.Port;
     public UiCommand PrimaryCommand { get; }

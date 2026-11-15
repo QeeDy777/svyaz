@@ -171,19 +171,6 @@
                 <ScrollViewer Style="{StaticResource PageScrollViewer}" Foreground="{DynamicResource BrandInk}" FontSize="14" VerticalScrollBarVisibility="Auto" Padding="8,20,0,16">
                     <StackPanel>
                         <TextBlock Text="Настройки" FontSize="28" FontWeight="SemiBold" Margin="0,0,0,22"/>
-                        <Border Style="{StaticResource FlatSection}" Margin="0,0,0,16" DataContext="{Binding AppUpdates}">
-                            <StackPanel>
-                                <Expander x:Name="ReleaseHistory" Header="Что нового · история версий" IsExpanded="{Binding ShowWhatsNew}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Top">
-                                    <StackPanel Margin="0,12,0,0">
-                                        <TextBlock x:Name="CurrentNotesBlock" Text="{Binding CurrentNotes}" TextWrapping="Wrap" Margin="0,0,0,18"/>
-                                        <TextBlock Text="{Binding EarlierNotes}" Style="{StaticResource SecondaryText}"/>
-                                    </StackPanel>
-                                </Expander>
-                                <TextBlock Text="{Binding InstalledHistory}" Style="{StaticResource SecondaryText}" Margin="0,16,0,12"/>
-                                <Button Content="{Binding RollbackLabel}" Command="{Binding RollbackCommand}" Style="{StaticResource QuietButton}" HorizontalAlignment="Left"/>
-                                <TextBlock Text="Откат перезапустит приложение и выключит автообновление. Настройки сохранятся. Включить обновления снова можно ниже." Style="{StaticResource SecondaryText}" Margin="0,10,0,0"/>
-                            </StackPanel>
-                        </Border>
                         <Border Style="{StaticResource FlatSection}" Margin="0,0,0,16">
                             <StackPanel>
                                 <TextBlock Text="Что подключать" Style="{StaticResource SectionTitle}"/>
@@ -196,6 +183,19 @@
                                 </StackPanel>
                                 <TextBlock Text="{Binding SelectionFeedback}" Style="{StaticResource SecondaryText}" Margin="0,10,0,0" AutomationProperties.LiveSetting="Polite"/>
                                 <TextBlock Text="После сна и смены сети восстановим включённые подключения. Уведомление — один раз после двух минут сбоя." Style="{StaticResource SecondaryText}" Margin="0,10,0,0"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource FlatSection}" Margin="0,0,0,16" DataContext="{Binding AppUpdates}">
+                            <StackPanel>
+                                <Expander x:Name="ReleaseHistory" Header="Что нового · история версий" IsExpanded="{Binding ShowWhatsNew}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Top">
+                                    <StackPanel Margin="0,12,0,0">
+                                        <TextBlock x:Name="CurrentNotesBlock" Text="{Binding CurrentNotes}" TextWrapping="Wrap" Margin="0,0,0,18"/>
+                                        <TextBlock Text="{Binding EarlierNotes}" Style="{StaticResource SecondaryText}"/>
+                                    </StackPanel>
+                                </Expander>
+                                <TextBlock Text="{Binding InstalledHistory}" Style="{StaticResource SecondaryText}" Margin="0,16,0,12"/>
+                                <Button Content="{Binding RollbackLabel}" Command="{Binding RollbackCommand}" Style="{StaticResource QuietButton}" HorizontalAlignment="Left"/>
+                                <TextBlock Text="Откат перезапустит приложение и выключит автообновление. Настройки сохранятся. Включить обновления снова можно ниже." Style="{StaticResource SecondaryText}" Margin="0,10,0,0"/>
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource FlatSection}" Margin="0,0,0,16">
