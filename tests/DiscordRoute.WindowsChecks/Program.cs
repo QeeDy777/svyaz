@@ -25,7 +25,7 @@ internal static class WindowsChecks
                 Check(window.Icon != null, "ICO decoded by WPF");
                 var tabs = Find<TabControl>(window) ?? throw new Exception("Tabs not found");
                 Check(tabs.Items.Count == 4, "Discord, Telegram, settings and journal tabs");
-                tabs.SelectedIndex = 1;
+                tabs.SelectedIndex = 2;
                 window.Show();
                 window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
                 var content = (FrameworkElement)window.Content;
@@ -41,9 +41,9 @@ internal static class WindowsChecks
                 var encoder = new PngBitmapEncoder();
                 encoder.Frames.Add(BitmapFrame.Create(bitmap));
                 Directory.CreateDirectory("dist");
-                using var screenshot = File.Create("dist/telegram-window.png");
+                using var screenshot = File.Create("dist/settings-window.png");
                 encoder.Save(screenshot);
-                Console.WriteLine("PASS: Telegram tab rendered");
+                Console.WriteLine("PASS: Settings and self-update controls rendered");
             }
             finally { ((MainViewModel)window.DataContext).Dispose(); }
             Task.Run(() => CheckProxyAsync(args.Take(2).ToArray())).GetAwaiter().GetResult();

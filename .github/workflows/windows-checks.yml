@@ -34,11 +34,14 @@ jobs:
         shell: pwsh
         run: ./build.ps1
       - name: WPF, Telegram and self-update
-        run: dotnet run --project tests/DiscordRoute.WindowsChecks -- dist/telegram-release.json dist/telegram-component/TgWsProxy_windows.exe dist/Svyaz-0.5.0-win-x64-unsigned.zip
+        shell: pwsh
+        run: |
+          $version = ([xml](Get-Content Directory.Build.props -Raw)).Project.PropertyGroup.Version
+          dotnet run --project tests/DiscordRoute.WindowsChecks -- dist/telegram-release.json dist/telegram-component/TgWsProxy_windows.exe "dist/Svyaz-$version-win-x64-unsigned.zip"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: windows-checks
           path: |
-            dist/telegram-window.png
+            dist/*-window.png
             dist/Svyaz-*.zip*

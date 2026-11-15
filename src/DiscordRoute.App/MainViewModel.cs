@@ -69,7 +69,6 @@ internal sealed class MainViewModel : PresentationState, IDisposable
             finally { AutostartEnabled = await Autostart.IsEnabledAsync(); Changed(nameof(AutostartEnabled)); }
             Log(AutostartEnabled ? "Автозапуск включён: через 15 секунд после входа в Windows." : "Автозапуск выключен.");
         }), () => !IsBusy && ready && !exiting);
-        AutoUpdateCommand = new(() => RunAsync(_ => { Save(); AppUpdates.SettingsChanged(); Log(state.AutoUpdate ? "Автообновление включено." : "Автообновление выключено."); return Task.CompletedTask; }), () => !IsBusy && !exiting);
         GameFilterCommand = new(ApplyGameFilterAsync, () => !IsBusy && !runner.IsRunning && !exiting);
         Telegram = new(state, Save, Log);
         AppUpdates = new(state, Log, app =>
@@ -80,6 +79,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
             Program.Restart = new(app, arguments.ToArray());
             RequestExit();
         });
+        AutoUpdateCommand = new(() => RunAsync(_ => { Save(); AppUpdates.SettingsChanged(); Log(state.AutoUpdate ? "Автообновление включено." : "Автообновление выключено."); return Task.CompletedTask; }), () => !IsBusy && !exiting);
     }
 
     private async Task ApplyGameFilterAsync()

@@ -17,3 +17,6 @@
 - [x] 0.4: managed Telegram proxy, verified downloads, stable local key and portable config.
 - [x] 0.4: independent tab, startup option, update fallback and owned process cleanup.
 - [x] 0.4: Windows CI integration; verified official Telegram process and cleanup.
+
+- [x] 0.5: strict self-update package validation, background staging, acknowledged restart and fallback.
+- [ ] 0.5: Windows CI self-update checks and release publication.
