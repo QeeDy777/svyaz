@@ -1,7 +1,7 @@
 name: Windows checks
 on:
   push:
-    branches: [main, feature/telegram-proxy]
+    branches: [main, feature/self-update]
   pull_request:
   workflow_dispatch:
 
@@ -30,11 +30,11 @@ jobs:
           $release = Get-Content dist/telegram-release.json -Raw | ConvertFrom-Json
           gh release download $release.tag_name --repo Flowseal/tg-ws-proxy --pattern TgWsProxy_windows.exe --dir dist/telegram-component
           if ($LASTEXITCODE -ne 0) { throw 'Cannot download official Telegram EXE' }
-      - name: WPF and real Telegram process
-        run: dotnet run --project tests/DiscordRoute.WindowsChecks -- dist/telegram-release.json dist/telegram-component/TgWsProxy_windows.exe
       - name: Build portable archive
         shell: pwsh
         run: ./build.ps1
+      - name: WPF, Telegram and self-update
+        run: dotnet run --project tests/DiscordRoute.WindowsChecks -- dist/telegram-release.json dist/telegram-component/TgWsProxy_windows.exe dist/Svyaz-0.5.0-win-x64-unsigned.zip
       - uses: actions/upload-artifact@v4
         if: always()
         with:

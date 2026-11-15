@@ -122,3 +122,18 @@ Flowseal tg-ws-proxy загружается при первом запуске �
 Основание: Flowseal/tg-ws-proxy v1.11.4, commit
 6690b788432fd0f59b0f38e228494bcd6bede1ca; docs/RU/README.windows.md,
 utils/tray_common.py, utils/default_config.py, windows.py. Лицензия MIT сохраняется.
+
+## Self-update (0.5.0)
+
+Download stable QeeDy777/svyaz x64 releases automatically at launch/every six hours
+under the shared update switch, or manually in settings. Require GitHub SHA-256,
+strict asset origin/name/version and a bounded flat ZIP containing all six runtime
+files. Install into existing content-addressed Program Files/Versions; never replace
+the running EXE or Data. Pending updates apply on next launch or explicit restart.
+Before exit, finish/cancel update work and stop both owned network components.
+A child startup acknowledgement promotes the candidate; failure keeps the prior
+version and restarts it without retrying the failed pending update. Redirect older
+0.5+ launchers to the verified current installation. Preserve disabled autostart and
+restore the connections that were active before an explicit update restart.
+One manual upgrade from 0.4 to 0.5 is required. No signing certificate is available;
+SHA-256 trusts the GitHub account and does not replace publisher signing.

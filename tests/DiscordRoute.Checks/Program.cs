@@ -20,6 +20,7 @@ void Reject(Action action, string name)
 
 IconChecks.Run(Check);
 TelegramChecks.Run(Check);
+AppUpdateChecks.Run(Check);
 await TelegramPackageChecks.RunAsync(Check, args.Contains("--telegram-smoke"));
 await GameFilterChecks.RunAsync(Check);
 var ui = new PresentationState();

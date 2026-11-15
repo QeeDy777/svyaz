@@ -55,10 +55,10 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
         }), () => IsRunning && !IsBusy && !exiting);
     }
 
-    public Task InitializeAsync() => RunAsync(async ct =>
+    public Task InitializeAsync(bool resume = false) => RunAsync(async ct =>
     {
         RefreshVersion();
-        if (state.Telegram.StartWithApp) await StartAsync(ct);
+        if (state.Telegram.StartWithApp || resume) await StartAsync(ct);
     });
 
     public async Task TickAsync()

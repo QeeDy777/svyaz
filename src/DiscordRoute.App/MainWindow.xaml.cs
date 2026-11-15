@@ -17,7 +17,7 @@ public partial class MainWindow : Window
 
     public MainWindow(bool startup) : this(startup, true) { }
 
-    internal MainWindow(bool startup, bool initializeServices)
+    internal MainWindow(bool startup, bool initializeServices, bool resumeDiscord = false, bool resumeTelegram = false)
     {
         initialized = !initializeServices;
         InitializeComponent();
@@ -46,7 +46,7 @@ public partial class MainWindow : Window
             if (initialized) return;
             initialized = true;
             if (startup) HideToTray();
-            await model.InitializeAsync(startup);
+            await model.InitializeAsync(startup, resumeDiscord, resumeTelegram);
             if (!exiting) timer.Start();
         };
         timer.Tick += async (_, _) => await model.TickAsync();

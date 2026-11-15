@@ -13,6 +13,7 @@ internal static class WindowsChecks
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Contains("--handoff-probe")) return SelfUpdateChecks.Probe(args);
         var app = new App();
         try
         {
@@ -45,7 +46,8 @@ internal static class WindowsChecks
                 Console.WriteLine("PASS: Telegram tab rendered");
             }
             finally { ((MainViewModel)window.DataContext).Dispose(); }
-            Task.Run(() => CheckProxyAsync(args)).GetAwaiter().GetResult();
+            Task.Run(() => CheckProxyAsync(args.Take(2).ToArray())).GetAwaiter().GetResult();
+            SelfUpdateChecks.Run(args.Length == 3 ? args[2] : null, Check);
             Console.WriteLine("Windows checks passed. Telegram messages/calls were not tested.");
             return 0;
         }

@@ -69,7 +69,7 @@
         <Grid Margin="4,0,4,16">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <TextBlock Text="Связь" FontSize="20" FontWeight="SemiBold"/>
-            <TextBlock Grid.Column="1" Text="0.4.0" Style="{StaticResource SecondaryText}" FontSize="12" VerticalAlignment="Center"/>
+            <TextBlock Grid.Column="1" Text="{Binding AppUpdates.Version}" Style="{StaticResource SecondaryText}" FontSize="12" VerticalAlignment="Center"/>
         </Grid>
         <TabControl Grid.Row="1" BorderThickness="0" Background="Transparent" HorizontalContentAlignment="Stretch">
             <TabItem Header="Discord" Padding="10,10" AutomationProperties.Name="Подключение Discord">
@@ -153,9 +153,18 @@
                                 <TextBlock Text="Работает автоматически" Style="{StaticResource SectionTitle}"/>
                                 <CheckBox Content="Подключать при входе в Windows" IsChecked="{Binding AutostartEnabled, Mode=OneWay}" Command="{Binding AutostartCommand}" Margin="0,0,0,8"/>
                                 <TextBlock Text="Подключение начнётся через 15 секунд после входа. Приложение останется в трее." Style="{StaticResource SecondaryText}" Margin="28,0,0,22"/>
-                                <CheckBox Content="Обновлять компоненты с GitHub" IsChecked="{Binding AutoUpdateEnabled}" Command="{Binding AutoUpdateCommand}" Margin="0,0,0,8"/>
-                                <TextBlock Text="Альты и установленный Telegram-компонент: каждые 6 часов. Telegram обновляется только при остановленном прокси. Сама «Связь» обновляется вручную." Style="{StaticResource SecondaryText}" Margin="28,0,0,16"/>
-                                <Button Content="Проверить обновления" Command="{Binding UpdateCommand}" HorizontalAlignment="Left" Padding="18,10"/>
+                                <CheckBox Content="Обновлять «Связь» и компоненты" IsChecked="{Binding AutoUpdateEnabled}" Command="{Binding AutoUpdateCommand}" Margin="0,0,0,8"/>
+                                <TextBlock Text="Проверка каждые 6 часов. «Связь» скачивается в фоне и обновляется при следующем запуске. Telegram — только при остановленном прокси." Style="{StaticResource SecondaryText}" Margin="28,0,0,16"/>
+                                <Button Content="Обновить альты" Command="{Binding UpdateCommand}" HorizontalAlignment="Left" Padding="18,10"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource FlatSection}" Margin="0,0,0,16" DataContext="{Binding AppUpdates}">
+                            <StackPanel>
+                                <TextBlock Text="Обновление «Связи»" Style="{StaticResource SectionTitle}"/>
+                                <TextBlock Text="{Binding Status}" Style="{StaticResource SecondaryText}" AutomationProperties.LiveSetting="Polite" Margin="0,0,0,12"/>
+                                <Button Content="Проверить новую версию" Command="{Binding CheckCommand}" HorizontalAlignment="Left" Padding="18,10" Margin="0,0,0,8"/>
+                                <Button Content="Обновить и перезапустить" Command="{Binding RestartCommand}" HorizontalAlignment="Left" Padding="18,10"/>
+                                <TextBlock Text="Перезапуск кратко прервёт подключения. Предыдущая версия и настройки сохраняются." Style="{StaticResource SecondaryText}" Margin="0,12,0,0"/>
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource FlatSection}" Margin="0,0,0,16">

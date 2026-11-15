@@ -1,12 +1,11 @@
 using System.Security.Cryptography;
+using DiscordRoute.Core;
 
 namespace DiscordRoute.App;
 
 internal static class RuntimeInstallation
 {
-    // Keep this list in sync with the self-contained WPF publish output.
-    internal static readonly string[] Files = ["Связь.exe", "D3DCompiler_47_cor3.dll", "PenImc_cor3.dll",
-        "PresentationNative_cor3.dll", "vcruntime140_cor3.dll", "wpfgfx_cor3.dll"];
+    internal static readonly string[] Files = AppUpdatePackage.RuntimeFiles;
 
     public static string Install(string sourceExecutable, string installRoot)
     {
@@ -36,7 +35,7 @@ internal static class RuntimeInstallation
         return Path.Combine(destination, Files[0]);
     }
 
-    private static string Identity(string directory)
+    internal static string Identity(string directory)
     {
         using var combined = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         foreach (var name in Files)
