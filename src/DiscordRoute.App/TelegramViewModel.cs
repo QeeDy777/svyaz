@@ -12,7 +12,7 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
     private readonly TelegramRunner runner;
     private CancellationTokenSource? cancellation;
     private TaskCompletionSource? operationDone;
-    private bool exiting;
+    private bool exiting, backgroundCheck;
     private int environmentVersion;
     private DateTimeOffset? startedAt;
     private DateTimeOffset nextProbe;
@@ -30,15 +30,16 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
     public UiCommand CheckCommand { get; }
     public UiCommand HelpCommand { get; }
 
-    public string Summary => IsBusy ? "Telegram · операция…" : ServerVerified ? "Telegram · сервер отвечает" : IsRunning ? "Telegram · не проверен" : "Telegram · выключен";
+    public string Summary => ShowProgress ? "Telegram · операция…" : ServerVerified ? "Telegram · сервер отвечает" : IsRunning ? "Telegram · не проверен" : "Telegram · выключен";
     public string ConnectionTime => startedAt is { } at && IsRunning ? "Прокси работает " + Math.Max(0, (int)(DateTimeOffset.UtcNow - at).TotalMinutes) + " мин" : "Прокси не запущен";
     public int? LastError { get; private set; }
     public string Port { get; set; }
     public bool StartWithApp { get; set; }
     public bool IsBusy { get; private set; }
+    public bool ShowProgress => IsBusy && !backgroundCheck;
     public bool IsRunning { get; private set; }
     public bool CanEdit => !IsBusy && !IsRunning;
-    public string PrimaryLabel => IsBusy ? "Отменить" : IsRunning ? "Остановить прокси" : Recovery.Wanted ? "Отменить повторы" : "Запустить прокси";
+    public string PrimaryLabel => ShowProgress ? "Отменить" : IsRunning ? "Остановить прокси" : Recovery.Wanted ? "Отменить повторы" : "Запустить прокси";
     public string Status { get; private set => Set(ref field, value); } = "Прокси работает внутри «Связи». Его можно добавить к общей кнопке в настройках.";
     public string Version => "Встроенный движок Flowseal " + TelegramRuntime.Version;
     public string Endpoint => "127.0.0.1:" + state.Telegram.Port;
@@ -55,7 +56,7 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
         Port = state.Telegram.Port.ToString(CultureInfo.InvariantCulture);
         StartWithApp = state.Telegram.StartWithApp;
         PrimaryCommand = new(ToggleAsync, () => !exiting);
-        CheckCommand = new(() => RunAsync(CheckServerAsync), () => IsRunning && !IsBusy && !exiting);
+        CheckCommand = new(() => RunAsync(ct => CheckServerAsync(ct)), () => IsRunning && !IsBusy && !exiting);
         HelpCommand = new(ResolveFailureAsync, () => !IsBusy && !exiting);
         SaveCommand = new(() => RunAsync(_ => { SaveSettings(); Status = "Настройки Telegram сохранены."; return Task.CompletedTask; }), () => CanEdit && !exiting);
         OpenCommand = new(() => RunAsync(_ =>
@@ -111,7 +112,7 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
                 }
             });
         }
-        else if (IsRunning && !Recovery.Pending && now >= nextProbe) await RunAsync(CheckServerAsync);
+        else if (IsRunning && !Recovery.Pending && now >= nextProbe) await RunAsync(ct => CheckServerAsync(ct, background: true), background: true);
     }
 
     public Task ResolveFailureAsync()
@@ -147,11 +148,15 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
 
     private Task ToggleAsync() => IsBusy || runner.IsRunning || Recovery.Wanted ? StopRequestedAsync() : StartRequestedAsync();
 
-    private async Task CheckServerAsync(CancellationToken ct)
+    private async Task CheckServerAsync(CancellationToken ct, bool background = false)
     {
-        ServerVerified = false;
-        ServerCheck = new("Сервер Telegram", "Ответ MTProto через прокси", CheckKind.Checking, "Проверяем ответ сервера…");
-        Changed(null);
+        var wasVerified = ServerVerified;
+        if (!background)
+        {
+            ServerVerified = false;
+            ServerCheck = new("Сервер Telegram", "Ответ MTProto через прокси", CheckKind.Checking, "Проверяем ответ сервера…");
+            Changed(null);
+        }
         var version = environmentVersion;
         var passed = await runner.ProbeAsync(ct);
         ct.ThrowIfCancellationRequested();
@@ -165,7 +170,7 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
         if (passed)
         {
             Recovery.Succeeded(); help = null;
-            Status = "Прокси запущен, сервер Telegram отвечает. Подключите его в Telegram.";
+            if (!background || !wasVerified) Status = "Прокси запущен, сервер Telegram отвечает. Подключите его в Telegram.";
         }
         else
         {
@@ -202,13 +207,14 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
         await CheckServerAsync(ct);
     }
 
-    private async Task RunAsync(Func<CancellationToken, Task> action)
+    internal async Task RunAsync(Func<CancellationToken, Task> action, bool background = false)
     {
         if (IsBusy || exiting) return;
         using var operation = new CancellationTokenSource();
         cancellation = operation;
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         operationDone = done;
+        backgroundCheck = background;
         IsBusy = true; Refresh();
         try { await action(operation.Token); }
         catch (OperationCanceledException) { ServerVerified = false; ServerCheck = new("Сервер Telegram", "Ответ MTProto через прокси", CheckKind.Idle, "Проверка отменена"); Status = "Операция Telegram отменена."; }
@@ -224,7 +230,7 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
         }
         finally
         {
-            cancellation = null; IsBusy = false; operationDone = null;
+            cancellation = null; IsBusy = false; backgroundCheck = false; operationDone = null;
             Refresh(); done.TrySetResult();
         }
     }

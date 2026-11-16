@@ -95,8 +95,8 @@
                         </Grid>
                         <TextBlock Text="{Binding PrimaryActionLabel}" TextAlignment="Center" FontWeight="SemiBold" Margin="0,0,0,12"/>
                         <Grid Height="3" Margin="60,0,60,8">
-                            <ProgressBar Value="100" IsIndeterminate="{DynamicResource {x:Static SystemParameters.ClientAreaAnimationKey}}"
-                                Visibility="{Binding AnyBusy, Converter={StaticResource VisibleIfTrue}}" AutomationProperties.Name="Выполняется операция"/>
+                            <ProgressBar x:Name="ConnectionProgress" Value="100" IsIndeterminate="{DynamicResource {x:Static SystemParameters.ClientAreaAnimationKey}}"
+                                Visibility="{Binding ShowProgress, Converter={StaticResource VisibleIfTrue}}" AutomationProperties.Name="Выполняется операция"/>
                         </Grid>
                         <StackPanel Margin="0,0,0,14">
                             <ContentControl Content="{Binding Api}" Visibility="{Binding Services.Discord, Converter={StaticResource VisibleIfTrue}}"/>

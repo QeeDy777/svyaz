@@ -21,6 +21,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     private DateTimeOffset nextUpdateAttempt = DateTimeOffset.MinValue;
     private bool ready, stopRequested, exiting, disposed;
     private bool telegramExited, ticking;
+    private bool backgroundCheck;
     private int environmentVersion;
     private readonly ConnectionRecovery recovery = new();
     private DateTimeOffset nextHealthCheck;
@@ -37,9 +38,10 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     public bool QuietNotifications { get; set; }
     public bool CanConfigureServices => !IsBusy && !runner.IsRunning && !Telegram.IsBusy && !Telegram.IsRunning && !recovery.Wanted && !Telegram.Recovery.Wanted;
     public bool AnyBusy => IsBusy || Telegram.IsBusy;
+    public bool ShowProgress => IsBusy && !backgroundCheck || Telegram.ShowProgress;
     public new bool ShowDisconnect => AnyBusy || IsProcessRunning || Telegram.IsRunning || recovery.Wanted || Telegram.Recovery.Wanted;
-    public new string PrimaryActionLabel => AnyBusy ? "Отменить и отключить" : ShowDisconnect ? "Отключить" : "Подключить";
-    public new string Heading => AnyBusy ? "Проверяем подключение" : HasError || Services.Telegram && Telegram.HasFailure ? "Нужно ваше внимание" :
+    public new string PrimaryActionLabel => ShowProgress ? "Отменить и отключить" : ShowDisconnect ? "Отключить" : "Подключить";
+    public new string Heading => ShowProgress ? "Проверяем подключение" : HasError || Services.Telegram && Telegram.HasFailure ? "Нужно ваше внимание" :
         (Services.UsesZapret ? IsVerified : true) && (!Services.Telegram || Telegram.ServerVerified) ? "Выбранные сервисы\nотвечают" :
         ShowDisconnect ? "Соединение проверяется" : "Всё начинается\nс одного нажатия.";
     public string SelectedServicesSummary => string.Join(" · ", new[] { Services.Discord ? "Discord" : null, Services.YouTube ? "YouTube" : null, Services.Telegram ? "Telegram" : null }.OfType<string>());
@@ -76,7 +78,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     public bool ShowRepair => IsProcessRunning || HasError || Services.Telegram && Telegram.HasFailure;
     public bool HasLastCheck => lastSuccessfulCheck != null;
     public string CurrentStrategy => IsProcessRunning ? runner.StrategyName ?? "Подбор…" : "—";
-    public string DiscordSummary => !Services.Discord ? "Discord · не выбран" : IsBusy ? "Discord · проверка…" : IsVerified ? "Discord · сервер отвечает" : IsProcessRunning ? "Discord · не проверен" : "Discord · выключен";
+    public string DiscordSummary => !Services.Discord ? "Discord · не выбран" : IsBusy && !backgroundCheck ? "Discord · проверка…" : IsVerified ? "Discord · сервер отвечает" : IsProcessRunning ? "Discord · не проверен" : "Discord · выключен";
     public string ConnectionTime => runner.StartedAt is { } at && IsProcessRunning ? "Подключено " + Math.Max(0, (int)(DateTimeOffset.UtcNow - at).TotalMinutes) + " мин" : "Подключение не запущено";
     public string LastCheck => lastSuccessfulCheck is { } at ? "Успешная проверка · " + at.ToLocalTime().ToString("dd.MM HH:mm") : "Успешных проверок пока нет";
     public string NetworkSummary => networkId == null ? "Сеть не определена · обычный подбор" : preferences.NetworkStrategies.TryGetValue(networkId, out var strategy) ? "Для этой сети сохранён " + strategy : "Запомним альт после успешной проверки";
@@ -301,7 +303,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
             return;
         }
         if (runner.IsRunning && recovery.Wanted && !recovery.Pending && now >= nextHealthCheck)
-            await RunAsync(async ct => { await CheckCurrentAsync(ct); });
+            await RunAsync(async ct => { await CheckCurrentAsync(ct); }, background: true);
         if (state.AutoUpdate && DateTimeOffset.UtcNow >= nextUpdateAttempt)
             await RunAsync(ct => UpdateAsync(false, ct));
     }
@@ -321,7 +323,8 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         if (IsVerified)
         {
             recovery.Succeeded(); lastSuccessfulCheck = DateTimeOffset.UtcNow;
-            SetStatus("Проверки пройдены: " + ZapretServicesSummary);
+            if (!backgroundCheck || HasError) SetStatus("Проверки пройдены: " + ZapretServicesSummary);
+            else Changed(null);
         }
         else
         {
@@ -450,12 +453,13 @@ internal sealed class MainViewModel : PresentationState, IDisposable
 
     }
 
-    private async Task RunAsync(Func<CancellationToken, Task> action)
+    internal async Task RunAsync(Func<CancellationToken, Task> action, bool background = false)
     {
         if (cancellation != null || exiting) return;
         using var operation = new CancellationTokenSource();
         cancellation = operation;
         stopRequested = false;
+        backgroundCheck = background;
         SetBusy(true);
         try { await action(operation.Token); }
         catch (OperationCanceledException) { quality.Clear(); IsVerified = false; Log("Операция отменена."); }
@@ -479,6 +483,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
             }
             cancellation = null;
             SetBusy(false);
+            backgroundCheck = false;
             CompleteExit();
         }
     }
