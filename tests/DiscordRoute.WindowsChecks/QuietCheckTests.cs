@@ -8,13 +8,26 @@ internal static class QuietCheckTests
     public static void Run(MainWindow window, TabControl tabs, MainViewModel model, Action<bool, string> check, Action<string> capture)
     {
         tabs.SelectedIndex = 0;
+        ((ScrollViewer)((TabItem)tabs.Items[0]).Content).ScrollToTop();
+        model.IsProcessRunning = true;
+        model.IsVerified = true;
+        check(model.Heading == "Связь включена", "Running connection has a stable heading independent of probe status");
+        model.EnvironmentChanged();
+        check(!model.IsVerified && model.Heading == "Связь включена" && !model.ShowProgress,
+            "Network invalidation cannot claim that an idle connection is being checked");
+        capture("connection-heading");
+        model.IsProcessRunning = false;
+        model.Telegram.Recovery.Enable();
+        check(model.Heading == "Ожидаем подключения", "Recovery intent without a process never claims an active connection or probe");
+        model.Telegram.Recovery.Stop();
         model.IsVerified = true;
         var gate = new TaskCompletionSource();
         var quiet = model.RunAsync(ct => gate.Task.WaitAsync(ct), background: true);
+        model.IsProcessRunning = true;
         window.UpdateLayout();
         check(model.AnyBusy && !model.ShowProgress && !((ProgressBar)window.FindName("ConnectionProgress")).IsVisible,
             "Background probe remains serialized without displaying progress");
-        check(model.Heading.Contains("отвечают") && model.PrimaryActionLabel == "Отключить" && model.DiscordSummary.Contains("отвечает"),
+        check(model.Heading == "Связь включена" && model.PrimaryActionLabel == "Отключить" && model.DiscordSummary.Contains("отвечает"),
             "Background probe preserves healthy heading, service summary and disconnect label");
         ((ScrollViewer)((TabItem)tabs.Items[0]).Content).ScrollToTop();
         capture("quiet-background-check");

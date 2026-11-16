@@ -42,8 +42,8 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     public new bool ShowDisconnect => AnyBusy || IsProcessRunning || Telegram.IsRunning || recovery.Wanted || Telegram.Recovery.Wanted;
     public new string PrimaryActionLabel => ShowProgress ? "Отменить и отключить" : ShowDisconnect ? "Отключить" : "Подключить";
     public new string Heading => ShowProgress ? "Проверяем подключение" : HasError || Services.Telegram && Telegram.HasFailure ? "Нужно ваше внимание" :
-        (Services.UsesZapret ? IsVerified : true) && (!Services.Telegram || Telegram.ServerVerified) ? "Выбранные сервисы\nотвечают" :
-        ShowDisconnect ? "Соединение проверяется" : "Всё начинается\nс одного нажатия.";
+        IsProcessRunning || Telegram.IsRunning ? "Связь включена" :
+        ShowDisconnect ? "Ожидаем подключения" : "Всё начинается\nс одного нажатия.";
     public string SelectedServicesSummary => string.Join(" · ", new[] { Services.Discord ? "Discord" : null, Services.YouTube ? "YouTube" : null, Services.Telegram ? "Telegram" : null }.OfType<string>());
     public string SelectionFeedback { get; private set => Set(ref field, value); } = "Отключите подключения перед изменением выбора.";
     public string ConnectionStatus => Services.Telegram && (!Services.UsesZapret || Telegram.HasFailure) ? Telegram.Status : Status;

@@ -1,7 +1,7 @@
 name: Windows checks
 on:
   push:
-    branches: [main, fix/quiet-health-checks]
+    branches: [main, fix/connection-heading]
   pull_request:
   workflow_dispatch:
 
