@@ -41,6 +41,12 @@ internal static class WindowsChecks
                     }
                 }
                 var model = (MainViewModel)window.DataContext;
+                tabs.SelectedIndex = 0;
+                window.UpdateLayout();
+                var fullScan = (Button)window.FindName("FullScanButton");
+                Check(fullScan.Command == model.FullScanCommand && model.FullScanCommand.CanExecute(null), "Full scan action is bound and available for zapret services");
+                fullScan.BringIntoView();
+                SaveScreenshot(window, "full-selection");
                 Check(model.RepairCommand.CanExecute(null) && model.ExportDiagnosticsCommand.CanExecute(null), "Repair and safe diagnostics actions available");
                 Check(!model.ShowRepair, "Idle screen avoids a duplicate repair action");
                 model.HasError = true;
@@ -48,7 +54,7 @@ internal static class WindowsChecks
                 model.HasError = false;
                 Check(model.DiscordSummary.Contains("выключен") && model.Telegram.Summary.Contains("выключен"), "Separate service status starts disconnected");
                 Check(model.ConnectionTime.Contains("не запущено") && model.LastCheck.Contains("пока нет"), "No invented connection time or successful check");
-                Check(model.AppUpdates.CurrentNotes.Contains("0.10.2") && model.AppUpdates.EarlierNotes.Contains("0.6.1"), "Release history available offline");
+                Check(model.AppUpdates.CurrentNotes.Contains("0.11.0") && model.AppUpdates.EarlierNotes.Contains("0.6.1"), "Release history available offline");
                 model.Report(new("fixture", "unused"), new(new(true, "sensitive-sentinel"), new(true, "sensitive-sentinel"), new(false, "sensitive-sentinel"), new(new(true, "sensitive-sentinel"), new(false, "sensitive-sentinel"))), "Failed");
                 model.ShowServiceResults(null);
                 var report = model.CreateDiagnosticReport();
@@ -141,6 +147,7 @@ internal static class WindowsChecks
             model.UseDiscord = false; model.UseYouTube = false; model.UseTelegram = true;
             model.ServicesCommand.Execute(null);
             Check(!model.Services.UsesZapret && model.Services.Telegram, "Telegram-only selection saved without enabling zapret");
+            Check(!model.FullScanCommand.CanExecute(null), "Full scan is unavailable for Telegram-only selection");
             tabs.SelectedIndex = 0; window.UpdateLayout();
             Check(!((ContentControl)window.FindName("YouTubeCheck")).IsVisible, "Unselected YouTube check is hidden");
             Check(!model.Heading.Contains("отвечают"), "Idle Telegram-only selection never claims success");
@@ -162,6 +169,7 @@ internal static class WindowsChecks
             model.UseYouTube = true; model.UseTelegram = false;
             model.ServicesCommand.Execute(null);
             Check(model.Services.YouTube && !model.Services.Discord && !model.Services.Telegram, "YouTube-only mode is independently selectable");
+            Check(model.FullScanCommand.CanExecute(null), "Full scan is available for YouTube-only selection");
             model.UseDiscord = true; model.ServicesCommand.Execute(null);
             model.Telegram.Port = oldPort;
             tabs.SelectedIndex = 2;

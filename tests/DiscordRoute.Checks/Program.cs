@@ -213,6 +213,22 @@ try
     session = new ConnectionSession(fake, sessionState, () => { }, (_, _, _) => { }, _ => { });
     await session.ConnectAsync(oldPackage, null, _ => Task.FromResult(++calls == 1 ? fail : pass), null, default, "general (ALT2)");
     Check(sessionState.LastStrategy == "general" && fake.Started.Count == 2, "Repair can replace a failing saved strategy with a twice-tested alternative");
+    foreach (var n in Enumerable.Range(3, 8)) File.WriteAllText(Path.Combine(old, $"general (ALT{n}).bat"), script);
+    fake = new FakeRunner();
+    var saves = 0;
+    session = new ConnectionSession(fake, sessionState, () => saves++, (_, _, _) => { }, _ => { });
+    ProbeResult TimedSession()
+    {
+        var timed = new CheckResult(true, "OK", ElapsedMs: fake.Started[^1] == "general (ALT10)" ? 10 : 100);
+        return new(timed, timed, timed, new(timed, timed));
+    }
+    await session.ConnectAsync(oldPackage, null, _ => Task.FromResult(TimedSession()), null, default, fullScan: true);
+    Check(fake.Started.Distinct().Count() == 10 && sessionState.LastStrategy == "general (ALT10)" && saves == 1,
+        "Connection session forwards full scan and saves the confirmed winner once");
+    fake = new FakeRunner(); calls = 0;
+    session = new ConnectionSession(fake, sessionState, () => { }, (_, _, _) => { }, _ => { });
+    await session.ConnectAsync(oldPackage, null, _ => { calls++; return Task.FromResult(TimedSession()); }, "general", default, fullScan: true);
+    Check(fake.Started.SequenceEqual(new[] { "general" }) && calls == 2, "An explicit manual strategy remains a single two-pass check in the session");
     await LocalProtocolChecks.RunAsync(Check);
     var fixtures = args.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
     if (fixtures.Length > 0)

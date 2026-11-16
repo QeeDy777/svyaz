@@ -75,16 +75,22 @@ public sealed class SelectionEngine(IStrategyRunner runner, Func<CancellationTok
     Action<Strategy, ProbeResult?, string> report)
 {
     public async Task<Strategy?> SelectAsync(Package package, IEnumerable<Strategy> strategies, string? preferred, CancellationToken ct,
-        bool compareQuality = false)
+        bool compareQuality = false, bool fullScan = false)
     {
+        compareQuality |= fullScan;
         var keepRunning = false;
         var candidates = new List<(Strategy Strategy, ResponseQuality Quality)>();
         var additional = 0;
+        var attempt = 0;
+        var total = 0;
         try
         {
-            foreach (var strategy in strategies.OrderBy(s => s.Name == preferred ? 0 : 1))
+            var ordered = strategies.OrderBy(s => s.Name == preferred ? 0 : 1).ToArray();
+            total = ordered.Length;
+            foreach (var strategy in ordered)
             {
-                if (candidates.Count > 0 && additional++ >= 6) break;
+                if (!fullScan && candidates.Count > 0 && additional++ >= 6) break;
+                attempt++;
                 var samples = await EvaluateAsync(strategy, compareQuality ? 3 : 2);
                 if (samples == null) continue;
                 var quality = ResponseQuality.From(samples.Select(ResponseQuality.Sample));
@@ -99,7 +105,7 @@ public sealed class SelectionEngine(IStrategyRunner runner, Func<CancellationTok
                     continue;
                 }
                 candidates.Add((strategy, quality));
-                if (candidates.Count == 3) break;
+                if (!fullScan && candidates.Count == 3) break;
             }
             foreach (var candidate in candidates.OrderBy(c => c.Quality.Score))
             {
@@ -117,7 +123,7 @@ public sealed class SelectionEngine(IStrategyRunner runner, Func<CancellationTok
         {
             ct.ThrowIfCancellationRequested();
             await runner.StopAsync();
-            report(strategy, null, "Запуск");
+            report(strategy, null, fullScan ? chosenQuality != null ? "Запуск · подтверждение" : $"Запуск · {attempt}/{total}" : "Запуск");
             try { await runner.StartAsync(package, strategy, ct); }
             catch (Exception ex) when (ex is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
             { report(strategy, null, "Ошибка запуска: " + ex.Message); return null; }

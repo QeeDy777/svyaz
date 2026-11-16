@@ -87,6 +87,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     public string DiagnosticFeedback { get; private set => Set(ref field, value); } = "Версия, результаты проверок и коды ошибок. Без ключей, адресов и исходных журналов.";
     public UiCommand ExportDiagnosticsCommand { get; }
     public UiCommand RepairCommand { get; }
+    public UiCommand FullScanCommand { get; }
     public UiCommand ConnectCommand { get; }
     public UiCommand StopCommand { get; }
     public UiCommand PrimaryCommand => ShowDisconnect ? StopCommand : ConnectCommand;
@@ -115,6 +116,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         ServicesCommand = new(SaveServicesAsync, () => CanConfigureServices && !exiting);
         ExportDiagnosticsCommand = new(ExportDiagnosticsAsync, () => !exiting);
         RepairCommand = new(() => ConnectSelectedAsync(true), () => !AnyBusy && !exiting);
+        FullScanCommand = new(() => ConnectSelectedAsync(fullScan: true), () => Services.UsesZapret && !AnyBusy && !exiting);
         ConnectCommand = new(() => ConnectSelectedAsync(), () => !AnyBusy && !exiting);
         UpdateCommand = new(() => RunAsync(ct => UpdateAsync(true, ct)), () => !IsBusy && !exiting);
         StopCommand = new(StopAsync, () => !exiting);
@@ -247,13 +249,14 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         return Task.CompletedTask;
     }
 
-    private async Task ConnectSelectedAsync(bool repair = false)
+    private async Task ConnectSelectedAsync(bool repair = false, bool fullScan = false)
     {
-        if (AnyBusy || exiting) return;
+        if (AnyBusy || exiting || fullScan && !Services.UsesZapret) return;
+        if (fullScan) { SelectedStrategy = AutomaticStrategy; Changed(nameof(SelectedStrategy)); }
         help = null; HasError = false;
         if (Services.UsesZapret) recovery.Enable();
         var telegram = Services.Telegram ? Telegram.StartRequestedAsync() : Task.CompletedTask;
-        var zapret = Services.UsesZapret ? RunAsync(ct => ConnectAsync(ct, repair)) : Task.CompletedTask;
+        var zapret = Services.UsesZapret ? RunAsync(ct => ConnectAsync(ct, repair, fullScan)) : Task.CompletedTask;
         await Task.WhenAll(telegram, zapret);
         if (!Services.UsesZapret) Status = Telegram.Status;
         Changed(null);
@@ -373,7 +376,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         }
     }
 
-    private async Task ConnectAsync(CancellationToken ct, bool repair = false)
+    private async Task ConnectAsync(CancellationToken ct, bool repair = false, bool fullScan = false)
     {
         if (!NetworkInterface.GetIsNetworkAvailable()) throw new ConnectionFailure("Нет сетевого подключения. Включите Wi-Fi или подключите кабель — повторим автоматически.");
         if (!runner.IsRunning) WindowsRunner.EnsureNoExternalProcess();
@@ -383,8 +386,9 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         qualityEnvironmentVersion = environmentVersion;
         quality.Clear();
         var preferred = networkId != null && preferences.NetworkStrategies.TryGetValue(networkId, out var saved) ? saved : state.LastStrategy;
-        var manual = repair || SelectedStrategy == AutomaticStrategy ? null : SelectedStrategy;
-        if (repair) Log("Восстановление: повторно проверяем все стратегии Discord и YouTube.");
+        var manual = repair || fullScan || SelectedStrategy == AutomaticStrategy ? null : SelectedStrategy;
+        if (fullScan) Log("Полный подбор: проверяем все доступные стратегии пакета.");
+        else if (repair) Log("Восстановление: запускаем быстрый подбор стратегии.");
         if (state.ActivePackage == null && state.PendingPackage == null) await UpdateAsync(true, ct);
         var active = packages.Open(state.ActivePackage);
         var pending = packages.Open(state.PendingPackage);
@@ -431,9 +435,15 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         IsVerified = false;
         Results.Clear();
         lastProbe = null;
-        SetStatus(manual == null ? "Сравниваем отклик рабочих альтов. Это может занять несколько минут…" : "Проверяем выбранный альт…");
-        var session = new ConnectionSession(runner, state, Save, Report, Log);
-        var selected = await session.ConnectAsync(active, pending, new DiscordProbe(endpoint, Services).RunAsync, manual, ct, preferred, compareQuality: manual == null);
+        SetStatus(fullScan ? "Полный подбор: проверяем все альты…" : manual == null ? "Сравниваем отклик рабочих альтов. Это может занять несколько минут…" : "Проверяем выбранный альт…");
+        var session = new ConnectionSession(runner, state, Save, (item, probe, outcome) =>
+        {
+            Report(item, probe, outcome);
+            if (fullScan && probe == null && outcome.StartsWith("Запуск", StringComparison.Ordinal))
+                SetStatus("Полный подбор" + outcome["Запуск".Length..] + " · " + item.Name);
+        }, Log);
+        var selected = await session.ConnectAsync(active, pending, new DiscordProbe(endpoint, Services).RunAsync, manual, ct, preferred,
+            compareQuality: manual == null, fullScan: fullScan);
         networkId = CurrentNetwork.Read();
         if (startedNetwork != networkId || startedVersion != environmentVersion)
         {
@@ -507,7 +517,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
 
     internal void Report(Strategy item, ProbeResult? probe, string outcome)
     {
-        if (probe == null && outcome == "Запуск") quality.Clear();
+        if (probe == null && outcome.StartsWith("Запуск", StringComparison.Ordinal)) quality.Clear();
         if (probe != null)
         {
             lastProbe = probe;
@@ -565,7 +575,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
 
     private void RefreshCommands()
     {
-        RepairCommand.Refresh(); ConnectCommand.Refresh(); UpdateCommand.Refresh(); StopCommand.Refresh(); AutostartCommand.Refresh(); AutoUpdateCommand.Refresh(); GameFilterCommand.Refresh();
+        RepairCommand.Refresh(); FullScanCommand.Refresh(); ConnectCommand.Refresh(); UpdateCommand.Refresh(); StopCommand.Refresh(); AutostartCommand.Refresh(); AutoUpdateCommand.Refresh(); GameFilterCommand.Refresh();
         ServicesCommand.Refresh(); HelpCommand.Refresh();
     }
 

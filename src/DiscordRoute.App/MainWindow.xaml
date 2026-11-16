@@ -112,6 +112,10 @@
                             </StackPanel>
                         </Border>
                         <TextBlock Visibility="{Binding Services.YouTube, Converter={StaticResource VisibleIfTrue}}" Text="YouTube: ответ сайта и Googlevideo, без проверки воспроизведения." Style="{StaticResource SecondaryText}" FontSize="11" Margin="0,0,0,12"/>
+                        <StackPanel Visibility="{Binding Services.UsesZapret, Converter={StaticResource VisibleIfTrue}}" Margin="0,0,0,14">
+                            <Button x:Name="FullScanButton" Content="Полный подбор" Command="{Binding FullScanCommand}" Style="{StaticResource QuietButton}"/>
+                            <TextBlock Text="Проверит все альты и сохранит лучший для этой сети. Дольше обычного подключения; связь может прерываться." Style="{StaticResource SecondaryText}" FontSize="11" Margin="0,6,0,0"/>
+                        </StackPanel>
                         <Button Content="{Binding HelpActionLabel}" Command="{Binding HelpCommand}" Visibility="{Binding ShowRepair, Converter={StaticResource VisibleIfTrue}}" Style="{StaticResource QuietButton}" Margin="0,0,0,12"/>
                         <TextBlock Text="{Binding ConnectionTime}" Visibility="{Binding IsProcessRunning, Converter={StaticResource VisibleIfTrue}}" Style="{StaticResource SecondaryText}" FontSize="12" TextAlignment="Center"/>
                         <TextBlock Text="{Binding LastCheck}" Visibility="{Binding HasLastCheck, Converter={StaticResource VisibleIfTrue}}" Style="{StaticResource SecondaryText}" FontSize="12" TextAlignment="Center" Margin="0,4,0,12"/>

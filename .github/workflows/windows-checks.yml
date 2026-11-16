@@ -1,7 +1,7 @@
 name: Windows checks
 on:
   push:
-    branches: [main, fix/connection-heading]
+    branches: [main, feature/full-selection]
   pull_request:
   workflow_dispatch:
 

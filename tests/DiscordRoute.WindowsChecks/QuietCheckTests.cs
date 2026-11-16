@@ -34,6 +34,7 @@ internal static class QuietCheckTests
         var overlaps = false;
         Finish(model.RunAsync(_ => { overlaps = true; return Task.CompletedTask; }));
         check(!overlaps && model.StopCommand.CanExecute(null), "Quiet probe rejects overlapping operations and allows disconnect");
+        check(!model.FullScanCommand.CanExecute(null), "Full scan cannot overlap an active operation");
         gate.SetResult(); Finish(quiet);
         gate = new();
         var manual = model.RunAsync(ct => gate.Task.WaitAsync(ct));

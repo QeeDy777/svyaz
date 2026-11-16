@@ -50,6 +50,29 @@ internal static class QualityChecks
         engine = new(runner, _ => Task.FromResult(runner.Started[^1] == "0" ? Timed(100) : failure), (_, _, _) => { });
         chosen = await engine.SelectAsync(package, Enumerable.Range(0, 22).Select(n => new Strategy(n.ToString(), "unused")), null, default, true);
         check(chosen?.Name == "0" && runner.Started.Count == 8, "After first candidate only six further strategies are attempted");
+        var all = Enumerable.Range(0, 22).Select(n => new Strategy(n.ToString(), "unused")).ToArray();
+        runner = new();
+        var reports = new List<string>();
+        engine = new(runner, _ => Task.FromResult(Timed(100 - int.Parse(runner.Started[^1]))), (_, _, outcome) => reports.Add(outcome));
+        chosen = await engine.SelectAsync(package, all, null, default, fullScan: true);
+        check(chosen?.Name == "21" && runner.Started.Take(22).SequenceEqual(all.Select(s => s.Name)) && runner.Started.Count == 23,
+            "Full scan checks all 22 working strategies and confirms the best even beyond the quick limit");
+        check(reports.Contains("Запуск · 22/22") && reports.Contains("Запуск · подтверждение"), "Full scan reports candidate count and final confirmation");
+        runner = new();
+        engine = new(runner, _ => Task.FromResult(runner.Started[^1] is "0" or "21" ? Timed(runner.Started[^1] == "21" ? 10 : 100) : failure), (_, _, _) => { });
+        chosen = await engine.SelectAsync(package, all, null, default, fullScan: true);
+        check(chosen?.Name == "21" && runner.Started.Count == 23, "Full scan continues past six failed alternatives to a late winner");
+        runner = new();
+        engine = new(runner, _ => Task.FromResult(runner.Started.Count > 22 && runner.Started[^1] == "21" ? failure : Timed(100 - int.Parse(runner.Started[^1]))), (_, _, _) => { });
+        chosen = await engine.SelectAsync(package, all, null, default, fullScan: true);
+        check(chosen?.Name == "20" && runner.Started.Count == 24, "Full scan rejects failed winner confirmation and validates the next ranked candidate");
+        runner = new(); count = 0;
+        using (var fullCancel = new CancellationTokenSource())
+        {
+            engine = new(runner, _ => { if (++count == 25) fullCancel.Cancel(); return Task.FromResult(Timed(10)); }, (_, _, _) => { });
+            try { await engine.SelectAsync(package, all, null, fullCancel.Token, fullScan: true); throw new Exception("Cancelled full scan accepted"); }
+            catch (OperationCanceledException) { check(!runner.IsRunning, "Cancelling a full scan beyond the quick limit stops its process"); }
+        }
         runner = new(); count = 0;
         using var cancel = new CancellationTokenSource();
         engine = new(runner, _ => { if (++count == 4) cancel.Cancel(); return Task.FromResult(Timed(10)); }, (_, _, _) => { });
