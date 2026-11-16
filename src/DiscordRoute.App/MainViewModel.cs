@@ -378,6 +378,12 @@ internal sealed class MainViewModel : PresentationState, IDisposable
 
     private async Task ConnectAsync(CancellationToken ct, bool repair = false, bool fullScan = false)
     {
+        fullScan |= string.IsNullOrWhiteSpace(state.LastStrategy);
+        if (fullScan && SelectedStrategy != AutomaticStrategy)
+        {
+            SelectedStrategy = AutomaticStrategy;
+            Changed(nameof(SelectedStrategy));
+        }
         if (!NetworkInterface.GetIsNetworkAvailable()) throw new ConnectionFailure("Нет сетевого подключения. Включите Wi-Fi или подключите кабель — повторим автоматически.");
         if (!runner.IsRunning) WindowsRunner.EnsureNoExternalProcess();
         networkId = CurrentNetwork.Read();

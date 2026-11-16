@@ -6,6 +6,11 @@ public sealed class ConnectionSession(IStrategyRunner runner, AppState state, Ac
     public async Task<Strategy> ConnectAsync(Package? active, Package? pending,
         Func<CancellationToken, Task<ProbeResult>> probe, string? manualStrategy, CancellationToken ct, string? preferredStrategy = null, bool compareQuality = false, bool fullScan = false)
     {
+        if (string.IsNullOrWhiteSpace(state.LastStrategy))
+        {
+            fullScan = true;
+            manualStrategy = null;
+        }
         var wasRunning = runner.IsRunning;
         var oldStrategy = state.LastStrategy;
         var oldActive = state.ActivePackage;

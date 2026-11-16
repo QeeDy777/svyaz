@@ -229,6 +229,51 @@ try
     session = new ConnectionSession(fake, sessionState, () => { }, (_, _, _) => { }, _ => { });
     await session.ConnectAsync(oldPackage, null, _ => { calls++; return Task.FromResult(TimedSession()); }, "general", default, fullScan: true);
     Check(fake.Started.SequenceEqual(new[] { "general" }) && calls == 2, "An explicit manual strategy remains a single two-pass check in the session");
+    fake = new FakeRunner();
+    sessionState = new AppState { ActivePackage = "old" };
+    var firstStatePath = Path.Combine(root, "first-connection.json");
+    session = new ConnectionSession(fake, sessionState, () => sessionState.Save(firstStatePath), (_, _, _) => { }, _ => { });
+    using (var firstCancel = new CancellationTokenSource())
+    {
+        calls = 0;
+        try
+        {
+            await session.ConnectAsync(oldPackage, null, token =>
+            {
+                if (++calls == 5) firstCancel.Cancel();
+                token.ThrowIfCancellationRequested();
+                return Task.FromResult(TimedSession());
+            }, null, firstCancel.Token);
+            throw new Exception("Expected first selection cancellation");
+        }
+        catch (OperationCanceledException)
+        {
+            Check(sessionState.LastStrategy == null && !File.Exists(firstStatePath) && !fake.IsRunning,
+                "Cancelled first selection does not mark setup complete");
+        }
+    }
+    fake = new FakeRunner();
+    session = new ConnectionSession(fake, sessionState, () => throw new IOException("Disk full"), (_, _, _) => { }, _ => { });
+    try
+    {
+        await session.ConnectAsync(oldPackage, null, _ => Task.FromResult(TimedSession()), null, default);
+        throw new Exception("Expected first selection save failure");
+    }
+    catch (IOException)
+    {
+        Check(sessionState.LastStrategy == null && !fake.IsRunning, "Failed first selection save keeps full selection required");
+    }
+    fake = new FakeRunner();
+    session = new ConnectionSession(fake, sessionState, () => sessionState.Save(firstStatePath), (_, _, _) => { }, _ => { });
+    await session.ConnectAsync(oldPackage, null, _ => Task.FromResult(TimedSession()), "general", default);
+    Check(fake.Started.Distinct().Count() == 10 && sessionState.LastStrategy == "general (ALT10)",
+        "First connection automatically scans every strategy even with a manual preference");
+    sessionState = AppState.Load(firstStatePath);
+    fake = new FakeRunner();
+    session = new ConnectionSession(fake, sessionState, () => { }, (_, _, _) => { }, _ => { });
+    await session.ConnectAsync(oldPackage, null, _ => Task.FromResult(TimedSession()), null, default, compareQuality: true);
+    Check(fake.Started.Distinct().Count() == 3 && fake.Started.First() == "general (ALT10)",
+        "Next connection after settings reload uses the saved winner and quick selection");
     await LocalProtocolChecks.RunAsync(Check);
     var fixtures = args.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
     if (fixtures.Length > 0)
