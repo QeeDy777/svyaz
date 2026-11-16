@@ -15,7 +15,6 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
     private bool exiting, backgroundCheck;
     private int environmentVersion;
     private DateTimeOffset? startedAt;
-    private DateTimeOffset nextProbe;
     private readonly ResponseHistory quality = new();
     public string QualitySummary => quality.Quality.Summary;
     public bool HasQuality => quality.Quality.Total > 0;
@@ -79,9 +78,9 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
     {
         environmentVersion++;
         quality.Clear();
-        Recovery.Invalidate(now);
+        if (!runner.IsRunning) Recovery.Invalidate(now);
         ServerVerified = false;
-        ServerCheck = new("Сервер Telegram", "Ответ MTProto через прокси", CheckKind.Idle, "Сеть изменилась; ожидаем повторную проверку");
+        ServerCheck = new("Сервер Telegram", "Ответ MTProto через прокси", CheckKind.Idle, "Сеть изменилась; проверка при следующем подключении");
         Changed(null);
     }
 
@@ -98,21 +97,8 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
             Refresh();
         }
         if (Recovery.ShouldNotify(now, notifications)) Notify?.Invoke("Telegram: соединение не восстановлено", "Откройте «Связь»: там показана причина и действие для восстановления.");
-        if (Recovery.TryBegin(now, System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable()))
-        {
-            await RunAsync(async ct =>
-            {
-                var version = environmentVersion;
-                if (runner.IsRunning) await CheckServerAsync(ct);
-                if (version != environmentVersion) return;
-                if (!ServerVerified)
-                {
-                    await runner.StopAsync();
-                    await StartAsync(ct);
-                }
-            });
-        }
-        else if (IsRunning && !Recovery.Pending && now >= nextProbe) await RunAsync(ct => CheckServerAsync(ct, background: true), background: true);
+        if (!runner.IsRunning && Recovery.TryBegin(now, System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable()))
+            await RunAsync(StartAsync);
     }
 
     public Task ResolveFailureAsync()
@@ -162,7 +148,6 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
         ct.ThrowIfCancellationRequested();
         if (version != environmentVersion) return;
         quality.Add(new(passed, "MTProto", ElapsedMs: passed ? runner.LastProbeMilliseconds : null));
-        nextProbe = DateTimeOffset.UtcNow.AddMinutes(1);
         ServerVerified = passed;
         HasFailure = !passed;
         ServerCheck = new("Сервер Telegram", "Ответ MTProto через прокси", passed ? CheckKind.Passed : CheckKind.Failed,

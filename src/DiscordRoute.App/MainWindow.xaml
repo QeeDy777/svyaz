@@ -194,7 +194,7 @@
                                     <Button Content="Сохранить выбор" Command="{Binding ServicesCommand}" Style="{StaticResource QuietButton}" HorizontalAlignment="Left"/>
                                 </StackPanel>
                                 <TextBlock Text="{Binding SelectionFeedback}" Style="{StaticResource SecondaryText}" Margin="0,10,0,0" AutomationProperties.LiveSetting="Polite"/>
-                                <TextBlock Text="После сна и смены сети восстановим включённые подключения. Уведомление — один раз после двух минут сбоя." Style="{StaticResource SecondaryText}" Margin="0,10,0,0"/>
+                                <TextBlock Text="Проверяем сервисы при подключении. Работающий альт не переключается автоматически, в том числе после сна и смены сети." Style="{StaticResource SecondaryText}" Margin="0,10,0,0"/>
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource FlatSection}" Margin="0,0,0,16" DataContext="{Binding AppUpdates}">

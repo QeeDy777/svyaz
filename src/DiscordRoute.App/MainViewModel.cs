@@ -24,7 +24,6 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     private bool backgroundCheck;
     private int environmentVersion;
     private readonly ConnectionRecovery recovery = new();
-    private DateTimeOffset nextHealthCheck;
     private readonly ResponseHistory quality = new();
     private int qualityEnvironmentVersion;
     public string QualitySummary => quality.Quality.Summary;
@@ -47,7 +46,6 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     public string SelectedServicesSummary => string.Join(" · ", new[] { Services.Discord ? "Discord" : null, Services.YouTube ? "YouTube" : null, Services.Telegram ? "Telegram" : null }.OfType<string>());
     public string SelectionFeedback { get; private set => Set(ref field, value); } = "Отключите подключения перед изменением выбора.";
     public string ConnectionStatus => Services.Telegram && (!Services.UsesZapret || Telegram.HasFailure) ? Telegram.Status : Status;
-    private string ZapretServicesSummary => string.Join(" и ", new[] { Services.Discord ? "Discord" : null, Services.YouTube ? "YouTube" : null }.OfType<string>());
     public string HelpActionLabel => Services.Telegram && Telegram.HasFailure ? Telegram.HelpActionLabel : help?.ActionLabel ?? "Повторить проверку";
     public UiCommand ServicesCommand { get; }
     public UiCommand HelpCommand { get; }
@@ -268,10 +266,12 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         var now = DateTimeOffset.UtcNow;
         environmentVersion++;
         quality.Clear();
-        recovery.Invalidate(now);
+        if (!runner.IsRunning) recovery.Invalidate(now);
         Telegram.NetworkChanged(now);
         IsVerified = false;
-        if (recovery.Wanted) SetStatus("Сеть изменилась или Windows вышла из сна. Проверим соединение через несколько секунд.");
+        if (recovery.Wanted) SetStatus(runner.IsRunning
+            ? "Сеть изменилась. Текущий альт продолжает работать; новая проверка — при подключении."
+            : "Сеть изменилась или Windows вышла из сна. Повторим подключение через несколько секунд.");
     }
 
     public async Task TickAsync()
@@ -294,48 +294,13 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         { quality.Clear(); IsVerified = false; recovery.Failed(now); SetStatus("Обход остановился. Попробуем восстановить подключение.", true); }
         if (recovery.ShouldNotify(now, preferences.QuietNotifications))
             Notify?.Invoke("Связь: соединение не восстановлено", help?.Message ?? "Откройте приложение и повторите проверку подключения.");
-        if (recovery.TryBegin(now, NetworkInterface.GetIsNetworkAvailable()))
+        if (!runner.IsRunning && recovery.TryBegin(now, NetworkInterface.GetIsNetworkAvailable()))
         {
-            await RunAsync(async ct =>
-            {
-                var version = environmentVersion;
-                if (runner.IsRunning && await CheckCurrentAsync(ct)) return;
-                if (version != environmentVersion) return;
-                await ConnectAsync(ct, true);
-            });
+            await RunAsync(ct => ConnectAsync(ct, true));
             return;
         }
-        if (runner.IsRunning && recovery.Wanted && !recovery.Pending && now >= nextHealthCheck)
-            await RunAsync(async ct => { await CheckCurrentAsync(ct); }, background: true);
         if (state.AutoUpdate && DateTimeOffset.UtcNow >= nextUpdateAttempt)
-            await RunAsync(ct => UpdateAsync(false, ct));
-    }
-
-    private async Task<bool> CheckCurrentAsync(CancellationToken ct)
-    {
-        var version = environmentVersion;
-        nextHealthCheck = DateTimeOffset.UtcNow.AddMinutes(1);
-        Uri? endpoint = null;
-        if (Services.Discord && state.VoiceServer != null) endpoint = VoiceEndpoint.Parse(state.VoiceServer);
-        if (Services.Discord && endpoint == null) return false;
-        var result = await new DiscordProbe(endpoint, Services).RunAsync(ct);
-        ct.ThrowIfCancellationRequested();
-        if (version != environmentVersion) return false;
-        lastProbe = result; quality.Add(ResponseQuality.Sample(result)); ShowServiceResults(result);
-        IsVerified = result.Success && runner.IsRunning;
-        if (IsVerified)
-        {
-            recovery.Succeeded(); lastSuccessfulCheck = DateTimeOffset.UtcNow;
-            if (!backgroundCheck || HasError) SetStatus("Проверки пройдены: " + ZapretServicesSummary);
-            else Changed(null);
-        }
-        else
-        {
-            recovery.Failed(DateTimeOffset.UtcNow);
-            help = ConnectionHelp.Describe(new IOException(), NetworkInterface.GetIsNetworkAvailable(), result);
-            SetStatus(help.Message, true);
-        }
-        return IsVerified;
+            await RunAsync(ct => UpdateAsync(false, ct), background: runner.IsRunning);
     }
 
     public async void RequestExit()
@@ -366,8 +331,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
             state.PendingPackage = newer.Id;
             Save();
             RefreshPackage();
-            Log("Новый пакет подготовлен. Он станет активным только после успешных проверок.");
-            if (runner.IsRunning && recovery.Wanted) await ConnectAsync(ct);
+            Log("Новый пакет подготовлен. Проверим и применим его при следующем подключении.");
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or System.Text.Json.JsonException)
         {
@@ -455,14 +419,13 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         {
             IsVerified = false;
             recovery.Invalidate(DateTimeOffset.UtcNow);
-            SetStatus("Сеть изменилась во время проверки. Повторим проверку автоматически.");
+            SetStatus("Сеть изменилась во время проверки. Переподключитесь, чтобы проверить новый маршрут.");
             return;
         }
         if (NetworkProfiles.Remember(preferences, startedNetwork, networkId, selected.Name)) preferences.Save(preferencesPath);
         lastSuccessfulCheck = DateTimeOffset.UtcNow;
         IsVerified = true;
         recovery.Succeeded();
-        nextHealthCheck = DateTimeOffset.UtcNow.AddMinutes(1);
         SetStatus(selected.Name + " · выбранные проверки пройдены");
         Log("Два прохода выбранных проверок прошли. Оставлена стратегия " + selected.Name);
         RefreshPackage();

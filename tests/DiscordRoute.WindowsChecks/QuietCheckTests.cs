@@ -65,6 +65,7 @@ internal static class QuietCheckTests
         Finish(model.RunAsync(_ => throw new InvalidOperationException("quiet-check failure"), background: true));
         check(model.HasError && model.Heading.Contains("внимание"), "Background Discord errors remain visible");
         model.StopCommand.Execute(null);
+        Finish(ConnectionOnlyChecks.RunAsync(model, check));
     }
 
     private static void Finish(Task operation)
