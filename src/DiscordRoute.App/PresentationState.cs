@@ -10,7 +10,7 @@ internal sealed record ServiceCheck(string Name, string Description, CheckKind K
 {
     public string Label => Kind switch { CheckKind.Passed => "Отвечает", CheckKind.Failed => "Не отвечает", CheckKind.Checking => "Проверяем…", _ => "Не проверено" };
 }
-internal sealed record StrategyResult(string Name, string Api, string Gateway, string Voice, string YouTube, string Outcome);
+internal sealed record StrategyResult(string Name, string Api, string Gateway, string Voice, string YouTube, string Outcome, string Quality = "Замеров пока нет");
 
 internal class ObservableState : INotifyPropertyChanged
 {

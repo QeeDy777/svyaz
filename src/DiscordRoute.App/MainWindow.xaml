@@ -105,6 +105,12 @@
                             <ContentControl x:Name="YouTubeCheck" Content="{Binding YouTube}" Visibility="{Binding Services.YouTube, Converter={StaticResource VisibleIfTrue}}"/>
                             <ContentControl Content="{Binding Telegram.ServerCheck}" Visibility="{Binding Services.Telegram, Converter={StaticResource VisibleIfTrue}}"/>
                         </StackPanel>
+                        <Border x:Name="QualityPanel" Background="{DynamicResource BrandMint}" CornerRadius="8" Padding="10" Margin="0,0,0,12" Visibility="{Binding HasQuality, Converter={StaticResource VisibleIfTrue}}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding QualitySummary}" TextWrapping="Wrap" FontSize="12"/>
+                                <TextBlock Text="Последние 5 проверок. Это отклик сервисов, не игровой ping." Style="{StaticResource SecondaryText}" FontSize="11" Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </Border>
                         <TextBlock Visibility="{Binding Services.YouTube, Converter={StaticResource VisibleIfTrue}}" Text="YouTube: ответ сайта и Googlevideo, без проверки воспроизведения." Style="{StaticResource SecondaryText}" FontSize="11" Margin="0,0,0,12"/>
                         <Button Content="{Binding HelpActionLabel}" Command="{Binding HelpCommand}" Visibility="{Binding ShowRepair, Converter={StaticResource VisibleIfTrue}}" Style="{StaticResource QuietButton}" Margin="0,0,0,12"/>
                         <TextBlock Text="{Binding ConnectionTime}" Visibility="{Binding IsProcessRunning, Converter={StaticResource VisibleIfTrue}}" Style="{StaticResource SecondaryText}" FontSize="12" TextAlignment="Center"/>
@@ -121,6 +127,7 @@
                                                     <StackPanel>
                                                         <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap"/>
                                                         <TextBlock Text="{Binding Outcome}" TextWrapping="Wrap" Margin="0,4,0,8"/>
+                                                        <TextBlock Text="{Binding Quality}" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,8"/>
                                                         <TextBlock Text="{Binding Api, StringFormat=API: {0}}" Style="{StaticResource SecondaryText}" FontSize="12"/>
                                                         <TextBlock Text="{Binding Gateway, StringFormat=Gateway: {0}}" Style="{StaticResource SecondaryText}" FontSize="12"/>
                                                         <TextBlock Text="{Binding Voice, StringFormat=Голос: {0}}" Style="{StaticResource SecondaryText}" FontSize="12"/>
@@ -144,6 +151,7 @@
                         <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,16" AutomationProperties.LiveSetting="Polite"/>
                         <Button Content="{Binding PrimaryLabel}" Command="{Binding PrimaryCommand}" Padding="18,12" HorizontalAlignment="Stretch" Margin="0,0,0,12"/>
                         <ContentControl Content="{Binding ServerCheck}" Margin="0,0,0,8"/>
+                        <TextBlock Text="{Binding QualitySummary}" Visibility="{Binding HasQuality, Converter={StaticResource VisibleIfTrue}}" Style="{StaticResource SecondaryText}" FontSize="12" Margin="0,0,0,8" ToolTip="До пяти последних проверок MTProto; включает локальный прокси. Не игровой ping."/>
                         <Button Style="{StaticResource QuietButton}" Content="Проверить сервер" Command="{Binding CheckCommand}" Margin="0,0,0,8"/>
                         <Button Style="{StaticResource QuietButton}" Content="{Binding HelpActionLabel}" Command="{Binding HelpCommand}" Visibility="{Binding HasFailure, Converter={StaticResource VisibleIfTrue}}" Margin="0,0,0,8"/>
                         <Button Style="{StaticResource QuietButton}" Content="Открыть в Telegram" Command="{Binding OpenCommand}" Padding="18,10" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>

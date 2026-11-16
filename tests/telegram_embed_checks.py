@@ -225,6 +225,8 @@ class EmbeddedChecks(unittest.TestCase):
                 host.start_probe()
                 self.until(lambda: json.loads(host.status())['probe'] != 'checking')
                 self.assertEqual(json.loads(host.status())['probe'], expected)
+                elapsed = json.loads(host.status())['probeElapsedMs']
+                self.assertTrue(elapsed is not None and elapsed >= 0 if expected == 'passed' else elapsed is None)
                 valid = False
             self.stop()
             self.assert_port_released()

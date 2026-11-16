@@ -16,6 +16,9 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
     private int environmentVersion;
     private DateTimeOffset? startedAt;
     private DateTimeOffset nextProbe;
+    private readonly ResponseHistory quality = new();
+    public string QualitySummary => quality.Quality.Summary;
+    public bool HasQuality => quality.Quality.Total > 0;
     internal ConnectionRecovery Recovery { get; } = new();
     public event Action<string, string>? Notify;
     public event Action? SettingsRequested;
@@ -74,6 +77,7 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
     public void NetworkChanged(DateTimeOffset now)
     {
         environmentVersion++;
+        quality.Clear();
         Recovery.Invalidate(now);
         ServerVerified = false;
         ServerCheck = new("Сервер Telegram", "Ответ MTProto через прокси", CheckKind.Idle, "Сеть изменилась; ожидаем повторную проверку");
@@ -126,11 +130,13 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
     public async Task StopRequestedAsync()
     {
         Recovery.Stop();
+        quality.Clear();
         cancellation?.Cancel();
         if (operationDone != null) await operationDone.Task;
         await RunAsync(async _ =>
         {
             await runner.StopAsync();
+            quality.Clear();
             ServerVerified = false;
             HasFailure = false;
             ServerCheck = new("Сервер Telegram", "Ответ MTProto через прокси", CheckKind.Idle, "Прокси отключён");
@@ -148,7 +154,9 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
         Changed(null);
         var version = environmentVersion;
         var passed = await runner.ProbeAsync(ct);
+        ct.ThrowIfCancellationRequested();
         if (version != environmentVersion) return;
+        quality.Add(new(passed, "MTProto", ElapsedMs: passed ? runner.LastProbeMilliseconds : null));
         nextProbe = DateTimeOffset.UtcNow.AddMinutes(1);
         ServerVerified = passed;
         HasFailure = !passed;
@@ -182,6 +190,7 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
 
     private async Task StartAsync(CancellationToken ct)
     {
+        quality.Clear();
         SaveSettings();
         var configuration = state.Telegram.EmbeddedConfiguration(Path.Combine(Program.DataRoot, "Telegram"),
             state.TelegramActivePackage, state.TelegramPendingPackage);
@@ -223,7 +232,7 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
     private void Refresh()
     {
         IsRunning = runner.IsRunning;
-        if (!IsRunning) { startedAt = null; ServerVerified = false; }
+        if (!IsRunning) { quality.Clear(); startedAt = null; ServerVerified = false; }
         Changed(null);
         PrimaryCommand.Refresh(); SaveCommand.Refresh(); OpenCommand.Refresh(); CopyCommand.Refresh(); CheckCommand.Refresh(); HelpCommand.Refresh();
     }
@@ -232,6 +241,7 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
     {
         exiting = true;
         Recovery.Stop();
+        quality.Clear();
         cancellation?.Cancel();
         if (operationDone != null) await operationDone.Task;
         await runner.StopAsync();

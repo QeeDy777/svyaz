@@ -24,6 +24,10 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     private int environmentVersion;
     private readonly ConnectionRecovery recovery = new();
     private DateTimeOffset nextHealthCheck;
+    private readonly ResponseHistory quality = new();
+    private int qualityEnvironmentVersion;
+    public string QualitySummary => quality.Quality.Summary;
+    public bool HasQuality => quality.Quality.Total > 0;
     private ConnectionHelp? help;
     public event Action? SettingsRequested;
     public ServiceSelection Services => preferences.Services!;
@@ -232,7 +236,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
             var alerts = preferences.QuietNotifications;
             try { preferences.Services = next; preferences.QuietNotifications = QuietNotifications; preferences.Save(preferencesPath); }
             catch { preferences.Services = old; preferences.QuietNotifications = alerts; throw; }
-            IsVerified = false; ShowServiceResults(null);
+            IsVerified = false; quality.Clear(); ShowServiceResults(null);
             SelectionFeedback = "Сохранено. Общая кнопка подключает: " + SelectedServicesSummary;
             Status = "Подключим выбранные сервисы: " + SelectedServicesSummary;
             Changed(null);
@@ -258,6 +262,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         if (exiting || disposed) return;
         var now = DateTimeOffset.UtcNow;
         environmentVersion++;
+        quality.Clear();
         recovery.Invalidate(now);
         Telegram.NetworkChanged(now);
         IsVerified = false;
@@ -281,7 +286,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         if (IsBusy || exiting) return;
         var now = DateTimeOffset.UtcNow;
         if (IsProcessRunning && !runner.IsRunning)
-        { IsVerified = false; recovery.Failed(now); SetStatus("Обход остановился. Попробуем восстановить подключение.", true); }
+        { quality.Clear(); IsVerified = false; recovery.Failed(now); SetStatus("Обход остановился. Попробуем восстановить подключение.", true); }
         if (recovery.ShouldNotify(now, preferences.QuietNotifications))
             Notify?.Invoke("Связь: соединение не восстановлено", help?.Message ?? "Откройте приложение и повторите проверку подключения.");
         if (recovery.TryBegin(now, NetworkInterface.GetIsNetworkAvailable()))
@@ -309,8 +314,9 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         if (Services.Discord && state.VoiceServer != null) endpoint = VoiceEndpoint.Parse(state.VoiceServer);
         if (Services.Discord && endpoint == null) return false;
         var result = await new DiscordProbe(endpoint, Services).RunAsync(ct);
+        ct.ThrowIfCancellationRequested();
         if (version != environmentVersion) return false;
-        lastProbe = result; ShowServiceResults(result);
+        lastProbe = result; quality.Add(ResponseQuality.Sample(result)); ShowServiceResults(result);
         IsVerified = result.Success && runner.IsRunning;
         if (IsVerified)
         {
@@ -371,6 +377,8 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         networkId = CurrentNetwork.Read();
         var startedNetwork = networkId;
         var startedVersion = environmentVersion;
+        qualityEnvironmentVersion = environmentVersion;
+        quality.Clear();
         var preferred = networkId != null && preferences.NetworkStrategies.TryGetValue(networkId, out var saved) ? saved : state.LastStrategy;
         var manual = repair || SelectedStrategy == AutomaticStrategy ? null : SelectedStrategy;
         if (repair) Log("Восстановление: повторно проверяем все стратегии Discord и YouTube.");
@@ -420,9 +428,9 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         IsVerified = false;
         Results.Clear();
         lastProbe = null;
-        SetStatus("Проверяем стратегии. Это может занять несколько минут…");
+        SetStatus(manual == null ? "Сравниваем отклик рабочих альтов. Это может занять несколько минут…" : "Проверяем выбранный альт…");
         var session = new ConnectionSession(runner, state, Save, Report, Log);
-        var selected = await session.ConnectAsync(active, pending, new DiscordProbe(endpoint, Services).RunAsync, manual, ct, preferred);
+        var selected = await session.ConnectAsync(active, pending, new DiscordProbe(endpoint, Services).RunAsync, manual, ct, preferred, compareQuality: manual == null);
         networkId = CurrentNetwork.Read();
         if (startedNetwork != networkId || startedVersion != environmentVersion)
         {
@@ -450,10 +458,11 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         stopRequested = false;
         SetBusy(true);
         try { await action(operation.Token); }
-        catch (OperationCanceledException) { IsVerified = false; Log("Операция отменена."); }
+        catch (OperationCanceledException) { quality.Clear(); IsVerified = false; Log("Операция отменена."); }
         catch (Exception ex)
         {
             IsVerified = false;
+            quality.Clear();
             lastError = ex.HResult;
             Log(ex.Message);
             help = ConnectionHelp.Describe(ex, NetworkInterface.GetIsNetworkAvailable(), lastProbe);
@@ -477,11 +486,13 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     private async Task StopAsync()
     {
         recovery.Stop();
+        quality.Clear();
         await Telegram.StopRequestedAsync();
         if (cancellation != null) { stopRequested = true; cancellation.Cancel(); return; }
         await RunAsync(async _ =>
         {
             await runner.StopAsync();
+            quality.Clear();
             IsVerified = false;
             ShowServiceResults(null);
             SetStatus("Отключено");
@@ -491,9 +502,15 @@ internal sealed class MainViewModel : PresentationState, IDisposable
 
     internal void Report(Strategy item, ProbeResult? probe, string outcome)
     {
-        if (probe != null) lastProbe = probe;
+        if (probe == null && outcome == "Запуск") quality.Clear();
+        if (probe != null)
+        {
+            lastProbe = probe;
+            if (qualityEnvironmentVersion == environmentVersion) quality.Add(ResponseQuality.Sample(probe));
+        }
+        Changed(nameof(QualitySummary)); Changed(nameof(HasQuality));
         ShowServiceResults(probe, checking: probe == null && !outcome.StartsWith("Ошибка", StringComparison.Ordinal));
-        var row = new StrategyResult(item.Name, probe?.Api.Detail ?? "—", probe?.Gateway.Detail ?? "—", probe?.Voice.Detail ?? "—", probe?.YouTube.Detail ?? "—", outcome);
+        var row = new StrategyResult(item.Name, probe?.Api.Detail ?? "—", probe?.Gateway.Detail ?? "—", probe?.Voice.Detail ?? "—", probe?.YouTube.Detail ?? "—", outcome, QualitySummary);
         var existing = Results.FirstOrDefault(r => r.Name == item.Name);
         if (existing == null) Results.Add(row); else Results[Results.IndexOf(existing)] = row;
         Log(item.Name + ": " + outcome + (probe == null ? "" : " | API: " + probe.Api.Detail + " | Gateway: " + probe.Gateway.Detail + " | Голос: " + probe.Voice.Detail + " | YouTube: " + probe.YouTube.Detail));

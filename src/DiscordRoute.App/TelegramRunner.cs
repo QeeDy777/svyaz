@@ -11,17 +11,19 @@ internal sealed class TelegramRunner : IDisposable
     private bool initialized;
     private bool disposed;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    private sealed record EngineState(bool Alive, bool Ready, string? Error, string? Probe = null);
+    private sealed record EngineState(bool Alive, bool Ready, string? Error, string? Probe = null, long? ProbeElapsedMs = null);
     private EngineState State => initialized
         ? JsonSerializer.Deserialize<EngineState>(TelegramPython.Call("status")!, Json) ?? throw new IOException("Нет состояния движка Telegram.")
         : new(false, false, null);
     public bool IsRunning => State.Alive;
+    public long? LastProbeMilliseconds { get; private set; }
 
     public async Task<bool> ProbeAsync(CancellationToken ct)
     {
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            LastProbeMilliseconds = null;
             if (!IsRunning) return false;
             TelegramPython.Call("start_probe");
             for (var attempt = 0; attempt < 150; attempt++)
@@ -29,7 +31,7 @@ internal sealed class TelegramRunner : IDisposable
                 await Task.Delay(100, ct).ConfigureAwait(false);
                 var status = State;
                 if (!status.Alive || status.Probe == "failed") return false;
-                if (status.Probe == "passed") return true;
+                if (status.Probe == "passed") { LastProbeMilliseconds = status.ProbeElapsedMs; return true; }
             }
             return false;
         }

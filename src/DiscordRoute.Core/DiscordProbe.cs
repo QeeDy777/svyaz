@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace DiscordRoute.Core;
 
-public sealed record CheckResult(bool Success, string Detail, bool Skipped = false);
+public sealed record CheckResult(bool Success, string Detail, bool Skipped = false, long? ElapsedMs = null);
 public sealed record ProbeResult(CheckResult Api, CheckResult Gateway, CheckResult Voice, YouTubeResult YouTube)
 {
     public bool Success => new[] { Api, Gateway, Voice, YouTube.Site, YouTube.GoogleVideo }.All(c => c.Success || c.Skipped) &&
@@ -55,7 +55,7 @@ public sealed class DiscordProbe(Uri? voiceEndpoint, ServiceSelection? selected 
         try
         {
             return await check(timeout.Token)
-                ? new(true, $"OK · {watch.ElapsedMilliseconds} мс")
+                ? new(true, $"OK · {watch.ElapsedMilliseconds} мс", ElapsedMs: watch.ElapsedMilliseconds)
                 : new(false, "Нет корректного ответа");
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return new(false, "Тайм-аут 7 с"); }
@@ -74,30 +74,65 @@ public interface IStrategyRunner
 public sealed class SelectionEngine(IStrategyRunner runner, Func<CancellationToken, Task<ProbeResult>> probe,
     Action<Strategy, ProbeResult?, string> report)
 {
-    public async Task<Strategy?> SelectAsync(Package package, IEnumerable<Strategy> strategies, string? preferred, CancellationToken ct)
+    public async Task<Strategy?> SelectAsync(Package package, IEnumerable<Strategy> strategies, string? preferred, CancellationToken ct,
+        bool compareQuality = false)
     {
         var keepRunning = false;
+        var candidates = new List<(Strategy Strategy, ResponseQuality Quality)>();
+        var additional = 0;
         try
         {
             foreach (var strategy in strategies.OrderBy(s => s.Name == preferred ? 0 : 1))
             {
-                ct.ThrowIfCancellationRequested();
-                await runner.StopAsync();
-                report(strategy, null, "Запуск");
-                try { await runner.StartAsync(package, strategy, ct); }
-                catch (Exception ex) when (ex is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
-                { report(strategy, null, "Ошибка запуска: " + ex.Message); continue; }
-                var first = await probe(ct);
-                report(strategy, first, first.Success ? "Повторная проверка" : "Не прошла");
-                if (!first.Success || !runner.IsRunning) continue;
-                var second = await probe(ct);
-                report(strategy, second, second.Success ? "Подходит" : "Нестабильна");
-                if (!second.Success || !runner.IsRunning) continue;
+                if (candidates.Count > 0 && additional++ >= 6) break;
+                var samples = await EvaluateAsync(strategy, compareQuality ? 3 : 2);
+                if (samples == null) continue;
+                var quality = ResponseQuality.From(samples.Select(ResponseQuality.Sample));
+                if (!compareQuality)
+                {
+                    keepRunning = true;
+                    return strategy;
+                }
+                if (!quality.CanRank)
+                {
+                    report(strategy, null, "Ошибка измерения времени; сравнение недоступно");
+                    continue;
+                }
+                candidates.Add((strategy, quality));
+                if (candidates.Count == 3) break;
+            }
+            foreach (var candidate in candidates.OrderBy(c => c.Quality.Score))
+            {
+                // Switching winws invalidates earlier success: confirm the final process again.
+                var confirmed = await EvaluateAsync(candidate.Strategy, 2, candidate.Quality);
+                if (confirmed == null) continue;
                 keepRunning = true;
-                return strategy;
+                return candidate.Strategy;
             }
             return null;
         }
         finally { if (!keepRunning) await runner.StopAsync(); }
+
+        async Task<List<ProbeResult>?> EvaluateAsync(Strategy strategy, int count, ResponseQuality? chosenQuality = null)
+        {
+            ct.ThrowIfCancellationRequested();
+            await runner.StopAsync();
+            report(strategy, null, "Запуск");
+            try { await runner.StartAsync(package, strategy, ct); }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
+            { report(strategy, null, "Ошибка запуска: " + ex.Message); return null; }
+            var samples = new List<ProbeResult>();
+            for (var pass = 0; pass < count; pass++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var result = await probe(ct);
+                ct.ThrowIfCancellationRequested();
+                samples.Add(result);
+                report(strategy, result, !result.Success ? "Не прошла" : pass == count - 1 && chosenQuality != null
+                    ? "Выбрана по качеству: " + chosenQuality.Summary : $"Проверка {pass + 1}/{count}");
+                if (!result.Success || !runner.IsRunning) return null;
+            }
+            return samples;
+        }
     }
 }

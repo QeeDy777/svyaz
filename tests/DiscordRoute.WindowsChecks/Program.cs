@@ -48,11 +48,25 @@ internal static class WindowsChecks
                 model.HasError = false;
                 Check(model.DiscordSummary.Contains("выключен") && model.Telegram.Summary.Contains("выключен"), "Separate service status starts disconnected");
                 Check(model.ConnectionTime.Contains("не запущено") && model.LastCheck.Contains("пока нет"), "No invented connection time or successful check");
-                Check(model.AppUpdates.CurrentNotes.Contains("0.9.0") && model.AppUpdates.EarlierNotes.Contains("0.6.1"), "Release history available offline");
+                Check(model.AppUpdates.CurrentNotes.Contains("0.10.0") && model.AppUpdates.EarlierNotes.Contains("0.6.1"), "Release history available offline");
                 model.Report(new("fixture", "unused"), new(new(true, "sensitive-sentinel"), new(true, "sensitive-sentinel"), new(false, "sensitive-sentinel"), new(new(true, "sensitive-sentinel"), new(false, "sensitive-sentinel"))), "Failed");
                 model.ShowServiceResults(null);
                 var report = model.CreateDiagnosticReport();
                 Check(report.VoicePassed == false && report.YouTubeGoogleVideoPassed == false && !report.ToJson().Contains("sensitive-sentinel"), "Diagnostics retain failed probes after UI reset without exporting raw details");
+                model.Report(new("quality-fixture", "unused"), null, "Запуск");
+                foreach (var ms in new long[] { 90, 100, 110 })
+                {
+                    var timed = new CheckResult(true, "OK", ElapsedMs: ms);
+                    model.Report(new("quality-fixture", "unused"), new(timed, timed, timed, new(timed, timed)), "Проверка");
+                }
+                Check(model.HasQuality && model.QualitySummary.Contains("100 мс") && model.QualitySummary.Contains("20 мс"), "Typed response timings reach the quality panel");
+                tabs.SelectedIndex = 0;
+                ((ScrollViewer)((TabItem)tabs.Items[0]).Content).ScrollToBottom();
+                window.UpdateLayout();
+                Check(((FrameworkElement)window.FindName("QualityPanel")).IsVisible, "Quality panel is visible after measured probes");
+                SaveScreenshot(window, "connection-quality");
+                model.EnvironmentChanged();
+                Check(!model.HasQuality, "Network change clears obsolete response quality");
                 var network = CurrentNetwork.Read();
                 Check(network?.Length == 64, "Connected Windows CI network provides a hashed NLM identity");
                 Console.WriteLine("NLM profile detected: " + (network != null));

@@ -152,15 +152,18 @@ def status():
     server = engine._server_instance
     alive = _thread is not None and _thread.is_alive()
     probe = 'idle'
+    elapsed_ms = None
     if _probe_future is not None and not _probe_future.cancelled():
         if not _probe_future.done():
             probe = 'checking'
         else:
             try:
-                probe = 'passed' if _probe_future.result() else 'failed'
+                result = _probe_future.result()
+                probe = 'passed' if result['success'] else 'failed'
+                elapsed_ms = result['elapsed_ms']
             except Exception:
                 probe = 'failed'
-    return json.dumps({'alive': alive, 'ready': alive and not _stopping and server is not None and bool(server.sockets), 'error': _error, 'probe': probe})
+    return json.dumps({'alive': alive, 'ready': alive and not _stopping and server is not None and bool(server.sockets), 'error': _error, 'probe': probe, 'probeElapsedMs': elapsed_ms})
 
 
 async def _probe_server(timeout=12):
@@ -207,9 +210,15 @@ def start_probe():
     cancel_probe()
     if _loop is None or _stopping:
         raise RuntimeError('not running')
-    _probe_future = asyncio.run_coroutine_threadsafe(_probe_server(), _loop)
+    _probe_future = asyncio.run_coroutine_threadsafe(_timed_probe(), _loop)
 
 
 def cancel_probe():
     if _probe_future is not None and not _probe_future.done():
         _probe_future.cancel()
+
+
+async def _timed_probe():
+    started = time.monotonic()
+    success = await _probe_server()
+    return {'success': success, 'elapsed_ms': int((time.monotonic() - started) * 1000) if success else None}
