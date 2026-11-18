@@ -2,9 +2,10 @@ using System.Net.Sockets;
 
 namespace DiscordRoute.Core;
 
-public sealed class ConnectionFailure(string message, bool settings = false) : IOException(message)
+public sealed class ConnectionFailure(string message, bool settings = false, bool requiresManualRetry = false) : IOException(message)
 {
     public bool OpenSettings { get; } = settings;
+    public bool RequiresManualRetry { get; } = requiresManualRetry;
 }
 
 public sealed record ConnectionHelp(string Message, bool OpenSettings = false)

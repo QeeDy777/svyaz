@@ -36,7 +36,7 @@ public sealed class ConnectionSession(IStrategyRunner runner, AppState state, Ac
                 if (pending != null && package.Id != pending.Id) log("Новый пакет не прошёл проверку. Используется предыдущий.");
                 return selected;
             }
-            throw new IOException("Ни одна стратегия не прошла проверки выбранных сервисов дважды. Рабочий альт не найден.");
+            throw new ConnectionFailure("Подбор завершён. Ни один альт не прошёл все проверки и подтверждение. Результаты по каждому альту есть в журнале. Можно повторить подбор вручную.", requiresManualRetry: true);
         }
         catch
         {

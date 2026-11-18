@@ -15,6 +15,8 @@ internal static class RecoveryChecks
         check(r.TryBegin(now.AddSeconds(42), true) && r.TryBegin(now.AddSeconds(102), true) && !r.TryBegin(now.AddHours(1), true), "At most three automatic recovery attempts");
         check(!r.ShouldNotify(now.AddSeconds(119), true) && !r.ShouldNotify(now.AddSeconds(121), false), "Short failures and disabled alerts stay silent");
         check(r.ShouldNotify(now.AddSeconds(121), true) && !r.ShouldNotify(now.AddHours(1), true), "Only one alert per prolonged outage");
+        r.Invalidate(now.AddHours(2));
+        check(!r.TryBegin(now.AddHours(3), true), "Repeated network events do not reset an exhausted retry budget");
         r.Succeeded();
         check(!r.Pending && !r.ShouldNotify(now.AddHours(1), true), "Success clears outage and pending retry");
         r.Invalidate(now); r.Stop();

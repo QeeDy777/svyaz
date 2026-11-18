@@ -389,7 +389,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
                         usable = true;
                         break;
                     }
-                    if (!usable) throw new IOException("Ни одна стратегия не открыла API и Gateway Discord для получения голосового адреса.");
+                    if (!usable) throw new ConnectionFailure("Подбор завершён. Ни одна стратегия не открыла API и Gateway Discord для получения голосового адреса.", requiresManualRetry: true);
                     Log("Временная стратегия открыла API и Gateway. Теперь подключитесь к голосовому каналу; голос ещё не проверен.");
                 }
                 for (var attempt = 0; attempt < 20 && endpoint == null; attempt++)
@@ -399,7 +399,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
                 }
             }
             finally { if (bootstrap) await runner.StopAsync(); }
-            if (endpoint == null) throw new ConnectionFailure("Не найден адрес голосового сервера. Войдите в канал Discord или укажите адрес в настройках.", true);
+            if (endpoint == null) throw new ConnectionFailure("Не найден адрес голосового сервера. Войдите в канал Discord или укажите адрес в настройках.", true, requiresManualRetry: true);
         }
         if (endpoint != null) Log("Проверяем голосовой сервер: " + endpoint.Authority);
         IsVerified = false;
@@ -449,7 +449,8 @@ internal sealed class MainViewModel : PresentationState, IDisposable
             lastError = ex.HResult;
             Log(ex.Message);
             help = ConnectionHelp.Describe(ex, NetworkInterface.GetIsNetworkAvailable(), lastProbe);
-            recovery.Failed(DateTimeOffset.UtcNow);
+            if (ex is ConnectionFailure { RequiresManualRetry: true }) recovery.Stop();
+            else recovery.Failed(DateTimeOffset.UtcNow);
             SetStatus(help.Message, true);
         }
         finally

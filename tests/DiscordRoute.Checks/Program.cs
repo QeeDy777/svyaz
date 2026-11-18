@@ -293,6 +293,20 @@ try
             sessionState.LastStrategy == "general" && ConnectionHelp.Describe(ex, true, fail).Message == ex.Message,
             "Mid-selection external conflict stops further ALTs, preserves state and exposes the PID error");
     }
+    fake = new FakeRunner();
+    sessionState = new AppState { ActivePackage = "old" };
+    session = new ConnectionSession(fake, sessionState, () => throw new Exception("Failed selection saved"), (_, _, _) => { }, _ => { });
+    try
+    {
+        await session.ConnectAsync(oldPackage, null, _ => Task.FromResult(fail), null, default);
+        throw new Exception("Failed full selection accepted");
+    }
+    catch (ConnectionFailure ex)
+    {
+        Check(ex.RequiresManualRetry && fake.Started.Distinct().Count() == 10 && fake.Started.Count == 10 &&
+            !fake.IsRunning && sessionState.LastStrategy == null && ConnectionHelp.Describe(ex, true, fail).Message == ex.Message,
+            "Exhausted first scan reports a terminal result after visiting each strategy once");
+    }
     await LocalProtocolChecks.RunAsync(Check);
     var fixtures = args.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
     if (fixtures.Length > 0)

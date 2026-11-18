@@ -19,7 +19,7 @@ internal sealed class WindowsRunner(Action<string> log, Func<GameFilterSettings>
             var conflict = FindRunningProcess();
             if (conflict == null) return;
             if (attempt == 8)
-                throw new ConnectionFailure("Обнаружен работающий zapret (" + conflict + "). Остановите отдельный zapret или его службу перед подбором. «Связь» не завершает чужие процессы.");
+                throw new ConnectionFailure("Обнаружен работающий zapret (" + conflict + "). Остановите отдельный zapret или его службу перед подбором. «Связь» не завершает чужие процессы.", requiresManualRetry: true);
             // A stopped process or its job children may still appear during Windows teardown.
             await Task.Delay(250, ct);
         }

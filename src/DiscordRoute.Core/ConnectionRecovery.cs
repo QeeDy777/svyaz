@@ -15,7 +15,6 @@ public sealed class ConnectionRecovery
     {
         if (!Wanted) return;
         Pending = true;
-        Attempts = 0;
         failedSince ??= now;
         Due = now.AddSeconds(10);
     }
