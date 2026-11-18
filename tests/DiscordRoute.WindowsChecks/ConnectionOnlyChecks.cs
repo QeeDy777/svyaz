@@ -25,9 +25,10 @@ internal static class ConnectionOnlyChecks
         {
             recovery.Enable();
             await model.RunAsync(_ => throw new ConnectionFailure("Подбор завершён", requiresManualRetry: true));
+            operations = 0;
             model.EnvironmentChanged();
             await model.TickAsync();
-            check(!recovery.Wanted && !recovery.Pending && model.HasError && model.PrimaryCommand == model.ConnectCommand,
+            check(operations == 0 && !recovery.Wanted && !recovery.Pending && model.HasError && model.PrimaryCommand == model.ConnectCommand,
                 "A terminal selection error leaves the next connection to the user, even after a network event");
             process.Start(new ProcessStartInfo("powershell.exe", "-NoProfile -Command Start-Sleep -Seconds 120")
                 { UseShellExecute = false, CreateNoWindow = true });
