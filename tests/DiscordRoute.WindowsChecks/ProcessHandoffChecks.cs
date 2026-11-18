@@ -56,6 +56,14 @@ internal static class ProcessHandoffChecks
                 finally { await process.StopAsync(); }
             }
         }
-        finally { Directory.Delete(root, true); }
+        finally
+        {
+            for (var attempt = 0; ; attempt++)
+            {
+                try { Directory.Delete(root, true); break; }
+                catch (Exception ex) when (attempt < 20 && ex is (IOException or UnauthorizedAccessException))
+                { await Task.Delay(100); }
+            }
+        }
     }
 }
