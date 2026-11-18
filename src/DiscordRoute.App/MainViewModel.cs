@@ -324,8 +324,11 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         var confirmed = false;
         await RunAsync(async ct =>
         {
+            var legacy = WinDivertCleanup.FindLegacyDrivers(Path.Combine(Program.DataRoot, "Packages"));
+            var extra = legacy.Count == 0 ? "" : "\n\nТакже удалить из Windows службы старого zapret?\n" +
+                string.Join("\n", legacy.Select(entry => entry.Key + " — " + entry.Value));
             confirmed = System.Windows.MessageBox.Show(
-                "Выгрузить и удалить драйвер WinDivert «Связи», скачанные пакеты zapret, пользовательские списки, кэш Game Filter и сохранённые альты? Текущее подключение zapret прервётся. Для загрузки пакета потребуется интернет.",
+                "Выгрузить и удалить драйвер WinDivert «Связи», скачанные пакеты zapret, пользовательские списки, кэш Game Filter и сохранённые альты? Текущее подключение zapret прервётся. Для загрузки пакета потребуется интернет." + extra,
                 "Сбросить кэш zapret", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning,
                 System.Windows.MessageBoxResult.No) == System.Windows.MessageBoxResult.Yes;
             if (!confirmed) return;
@@ -345,7 +348,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
             SelectedStrategy = AutomaticStrategy;
             SetStatus(ResetFeedback);
             Log(ResetFeedback);
-            await CompleteZapretResetAsync(ct);
+            await CompleteZapretResetAsync(ct, legacy);
             RefreshPackage();
             ct.ThrowIfCancellationRequested();
             ResetFeedback = "Кэш очищен. Загружаем новый пакет zapret…";
@@ -363,9 +366,9 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         if (confirmed) ResetFeedback = Status;
     }
 
-    private Task CompleteZapretResetAsync(CancellationToken ct) =>
+    private Task CompleteZapretResetAsync(CancellationToken ct, IReadOnlyDictionary<string, string>? approvedLegacy = null) =>
         ZapretCache.ResetAsync(Program.DataRoot, state, preferences, () =>
-            WinDivertCleanup.RemoveAsync(Path.Combine(Program.DataRoot, "Packages"), Log, ct));
+            WinDivertCleanup.RemoveAsync(Path.Combine(Program.DataRoot, "Packages"), Log, ct, approvedLegacy));
 
     private async Task UpdateAsync(bool force, CancellationToken ct)
     {
