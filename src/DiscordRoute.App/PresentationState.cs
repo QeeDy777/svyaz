@@ -5,10 +5,10 @@ using DiscordRoute.Core;
 
 namespace DiscordRoute.App;
 
-internal enum CheckKind { Idle, Checking, Passed, Failed }
+internal enum CheckKind { Idle, Checking, Passed, Failed, Unconfirmed }
 internal sealed record ServiceCheck(string Name, string Description, CheckKind Kind, string Detail)
 {
-    public string Label => Kind switch { CheckKind.Passed => "Отвечает", CheckKind.Failed => "Не отвечает", CheckKind.Checking => "Проверяем…", _ => "Не проверено" };
+    public string Label => Kind switch { CheckKind.Passed => "Отвечает", CheckKind.Failed => "Не отвечает", CheckKind.Unconfirmed => "Без подтверждения", CheckKind.Checking => "Проверяем…", _ => "Не проверено" };
 }
 internal sealed record StrategyResult(string Name, string Api, string Gateway, string Voice, string YouTube, string Outcome, string Quality = "Замеров пока нет");
 

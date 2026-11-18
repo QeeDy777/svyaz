@@ -191,7 +191,6 @@ class EmbeddedChecks(unittest.TestCase):
                 self.assertEqual(incoming.update(reply), packet)
 
     def test_server_probe_through_engine_and_invalid_nonce(self):
-        valid = True
         class ReplyDc:
             def __init__(self):
                 self.dec = None
@@ -199,7 +198,8 @@ class EmbeddedChecks(unittest.TestCase):
             async def send(self, data):
                 if self.dec is None:
                     self.dec = Cipher(algorithms.AES(data[8:40]), modes.CTR(data[40:56])).encryptor()
-                    self.dec.update(bytes(64))
+                    header = self.dec.update(data)
+                    assert header[56:60] == bytes([0xdd]) * 4
                     reverse = data[8:56][::-1]
                     self.enc = Cipher(algorithms.AES(reverse[:32]), modes.CTR(reverse[32:])).encryptor()
                 else:
@@ -207,7 +207,7 @@ class EmbeddedChecks(unittest.TestCase):
                     assert request[24:28] == struct.pack('<I', 0xbe7e8ef1)
                     nonce = request[28:44] if valid else bytes(16)
                     body = struct.pack('<I', 0x05162463) + nonce + os.urandom(16) + bytes(20)
-                    message = struct.pack('<QQI', 0, 1, len(body)) + body
+                    message = struct.pack('<QQI', 0, 1, len(body)) + body + bytes(padding)
                     await self.queue.put(self.enc.update(struct.pack('<I', len(message)) + message))
             async def send_batch(self, frames):
                 for frame in frames:
@@ -221,13 +221,13 @@ class EmbeddedChecks(unittest.TestCase):
         with patch.object(host.engine.ws_pool, 'get', side_effect=connect):
             host.start(self.raw)
             self.until(lambda: json.loads(host.status())['ready'])
-            for expected in ['passed', 'failed']:
+            for valid, padding, expected in [(True, 0, 'passed'), (True, 3, 'passed'), (True, 15, 'passed'),
+                                             (False, 3, 'failed'), (True, 16, 'failed')]:
                 host.start_probe()
                 self.until(lambda: json.loads(host.status())['probe'] != 'checking')
                 self.assertEqual(json.loads(host.status())['probe'], expected)
                 elapsed = json.loads(host.status())['probeElapsedMs']
                 self.assertTrue(elapsed is not None and elapsed >= 0 if expected == 'passed' else elapsed is None)
-                valid = False
             self.stop()
             self.assert_port_released()
 

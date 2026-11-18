@@ -136,7 +136,6 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
 
     private async Task CheckServerAsync(CancellationToken ct, bool background = false)
     {
-        var wasVerified = ServerVerified;
         if (!background)
         {
             ServerVerified = false;
@@ -147,21 +146,31 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
         var passed = await runner.ProbeAsync(ct);
         ct.ThrowIfCancellationRequested();
         if (version != environmentVersion) return;
+        ApplyProbeResult(passed);
+    }
+
+    internal void ApplyProbeResult(bool passed)
+    {
         quality.Add(new(passed, "MTProto", ElapsedMs: passed ? runner.LastProbeMilliseconds : null));
-        ServerVerified = passed;
-        HasFailure = !passed;
-        ServerCheck = new("Сервер Telegram", "Ответ MTProto через прокси", passed ? CheckKind.Passed : CheckKind.Failed,
-            passed ? "Получен ответ MTProto. Сообщения и звонки не проверялись." : "Нет корректного ответа за отведённое время.");
-        if (passed)
+        var running = runner.IsRunning;
+        ServerVerified = passed && running;
+        HasFailure = !running;
+        if (running)
         {
-            Recovery.Succeeded(); help = null;
-            if (!background || !wasVerified) Status = "Прокси запущен, сервер Telegram отвечает. Подключите его в Telegram.";
+            Recovery.Succeeded();
+            help = null;
+            ServerCheck = new("Сервер Telegram", "Ответ MTProto через прокси",
+                passed ? CheckKind.Passed : CheckKind.Unconfirmed,
+                passed ? "Получен ответ MTProto." : "Проверочный запрос не получил корректного ответа.");
+            Status = passed ? "Прокси запущен, сервер Telegram отвечает. Подключите его в Telegram."
+                    : "Прокси запущен. Ответ на проверочный запрос не подтверждён.";
         }
         else
         {
             Recovery.Failed(DateTimeOffset.UtcNow);
-            help = new("Локальный прокси запущен, но сервер Telegram не ответил. Проверьте интернет и повторите проверку.");
+            help = new("Прокси остановился. Повторите подключение.");
             Status = help.Message;
+            ServerCheck = new("Сервер Telegram", "Ответ MTProto через прокси", CheckKind.Failed, Status);
         }
         Changed(null);
     }

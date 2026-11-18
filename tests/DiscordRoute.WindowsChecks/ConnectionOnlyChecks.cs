@@ -57,6 +57,10 @@ internal static class ConnectionOnlyChecks
             await telegram.RunAsync(_ => Task.CompletedTask);
             operations = 0;
             telegram.Recovery.Enable();
+            telegram.ApplyProbeResult(false);
+            check(telegramRunner.IsRunning && !telegram.HasFailure && !telegram.ServerVerified &&
+                telegram.ServerCheck.Kind == CheckKind.Unconfirmed && !telegram.Recovery.Pending,
+                "Unanswered diagnostic probe leaves a running Telegram proxy available without an outage alert");
             var before = telegram.ServerCheck;
             await telegram.TickAsync();
             check(operations == 0 && ReferenceEquals(before, telegram.ServerCheck) && telegramRunner.IsRunning,

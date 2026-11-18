@@ -1,7 +1,7 @@
 name: Windows checks
 on:
   push:
-    branches: [main, fix/stop-repeating-selection]
+    branches: [main, fix/telegram-probe-status]
   pull_request:
   workflow_dispatch:
 

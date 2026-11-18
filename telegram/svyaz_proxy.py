@@ -176,7 +176,7 @@ async def _probe_server(timeout=12):
             initial = bytearray(os.urandom(64))
             initial[0] = 0x10
             initial[4] |= 1
-            initial[56:60] = b'\xee' * 4
+            initial[56:60] = b'\xdd' * 4
             dc = 2 if 2 in pc.dc_redirects else next(iter(pc.dc_redirects), 2)
             initial[60:62] = struct.pack('<h', dc)
             outgoing = engine.Cipher(engine.algorithms.AES(hashlib.sha256(initial[8:40] + secret).digest()),
@@ -189,13 +189,16 @@ async def _probe_server(timeout=12):
             body = struct.pack('<I', 0xbe7e8ef1) + nonce
             message = struct.pack('<QQI', 0, int(time.time() * (1 << 32)) & ~3, len(body)) + body
             reader, writer = await asyncio.open_connection('127.0.0.1', pc.port)
-            writer.write(bytes(initial[:56]) + encrypted[56:] + outgoing.update(struct.pack('<I', len(message)) + message))
+            frame = message + os.urandom(os.urandom(1)[0] % 16)
+            writer.write(bytes(initial[:56]) + encrypted[56:] + outgoing.update(struct.pack('<I', len(frame)) + frame))
             await writer.drain()
             length = struct.unpack('<I', incoming.update(await reader.readexactly(4)))[0]
-            if not 56 <= length <= 4096 or length % 4:
+            if not 56 <= length <= 4096:
                 return False
             reply = incoming.update(await reader.readexactly(length))
-            return (reply[:8] == bytes(8) and struct.unpack_from('<I', reply, 16)[0] == length - 20
+            body_length = struct.unpack_from('<I', reply, 16)[0]
+            return (reply[:8] == bytes(8) and body_length >= 36 and body_length % 4 == 0
+                    and 0 <= length - 20 - body_length <= 15
                     and reply[20:24] == struct.pack('<I', 0x05162463) and reply[24:40] == nonce)
     except (OSError, TimeoutError, asyncio.IncompleteReadError, ValueError):
         return False
