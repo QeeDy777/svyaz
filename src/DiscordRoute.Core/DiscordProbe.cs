@@ -11,8 +11,14 @@ public sealed record ProbeResult(CheckResult Api, CheckResult Gateway, CheckResu
         new[] { Api, Gateway, Voice, YouTube.Site, YouTube.GoogleVideo }.Any(c => !c.Skipped);
 }
 
-public sealed class DiscordProbe(Uri? voiceEndpoint, ServiceSelection? selected = null, Func<Uri?>? resolveVoiceEndpoint = null)
+public sealed class DiscordProbe(IReadOnlyList<Uri> initialEndpoints, ServiceSelection? selected, Func<IReadOnlyList<Uri>> resolveVoiceEndpoints)
 {
+    private IReadOnlyList<Uri> voiceEndpoints = initialEndpoints;
+
+    public DiscordProbe(Uri? voiceEndpoint, ServiceSelection? selected = null, Func<Uri?>? resolveVoiceEndpoint = null)
+        : this(voiceEndpoint == null ? [] : [voiceEndpoint], selected,
+            () => resolveVoiceEndpoint?.Invoke() is { } endpoint ? [endpoint] : []) { }
+
     public async Task<ProbeResult> RunAsync(CancellationToken ct)
     {
         var services = selected ?? new();
@@ -25,12 +31,21 @@ public sealed class DiscordProbe(Uri? voiceEndpoint, ServiceSelection? selected 
         return new(api, gateway, await voice, await youtube);
     }
 
-    internal Task<CheckResult> RunVoiceAsync(CancellationToken ct)
+    internal async Task<CheckResult> RunVoiceAsync(CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        voiceEndpoint = resolveVoiceEndpoint?.Invoke() ?? voiceEndpoint;
-        return MeasureAsync(token => DiscordProtocol.ReadHelloAsync(voiceEndpoint ??
-            throw new InvalidDataException("Нет адреса голосового сервера."), 8, token), ct);
+        var discovered = resolveVoiceEndpoints();
+        if (discovered.Count > 0) voiceEndpoints = discovered;
+        if (voiceEndpoints.Count == 0) throw new InvalidDataException("Нет адреса голосового сервера.");
+        var details = new List<string>();
+        foreach (var endpoint in voiceEndpoints.Distinct().Take(3))
+        {
+            ct.ThrowIfCancellationRequested();
+            var result = await MeasureAsync(token => DiscordProtocol.ReadHelloAsync(endpoint, 8, token), ct);
+            details.Add($"{endpoint.Authority} — {result.Detail}");
+            if (result.Success) return result with { Detail = string.Join(" / ", details) };
+        }
+        return new(false, string.Join(" / ", details));
     }
 
     public static async Task<(CheckResult Api, CheckResult Gateway)> RunControlAsync(CancellationToken ct)

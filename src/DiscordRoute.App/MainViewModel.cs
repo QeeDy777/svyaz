@@ -16,6 +16,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     private readonly PackageStore packages;
     private readonly WindowsRunner runner;
     private readonly GameIpSet gameIpSet;
+    private readonly VoiceDiscovery voiceDiscovery = new();
     private readonly Action<Action> dispatch;
     private CancellationTokenSource? cancellation;
     private DateTimeOffset nextUpdateAttempt = DateTimeOffset.MinValue;
@@ -365,10 +366,10 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         var package = pending ?? active ?? throw new IOException("Сначала нужно загрузить пакет zapret с GitHub.");
         if (state.GameFilter.Mode != GameFilterMode.Disabled) await gameIpSet.EnsureAsync(ct);
         if (pending != null && active != null) PackageStore.PrepareLists(pending.Root, active.Root);
-        var endpoint = Services.Discord ? GetVoiceEndpoint() : null;
-        if (Services.Discord && endpoint == null && state.VoiceServer != null && state.VoiceObservedAt > DateTimeOffset.UtcNow.AddDays(-7))
-            endpoint = VoiceEndpoint.Parse(state.VoiceServer);
-        if (Services.Discord && endpoint == null)
+        var endpoints = Services.Discord ? GetVoiceEndpoints() : [];
+        if (Services.Discord && endpoints.Count == 0 && state.VoiceServer != null && state.VoiceObservedAt > DateTimeOffset.UtcNow.AddDays(-7))
+            endpoints = [VoiceEndpoint.Parse(state.VoiceServer)];
+        if (Services.Discord && endpoints.Count == 0)
         {
             SetStatus("Откройте голосовой канал Discord: ждём адрес сервера…");
             Log("Нет адреса голосового сервера. Откройте Discord и попробуйте подключиться к голосовому каналу в течение минуты. Подтверждать звук не нужно.");
@@ -392,16 +393,16 @@ internal sealed class MainViewModel : PresentationState, IDisposable
                     if (!usable) throw new ConnectionFailure("Подбор завершён. Ни одна стратегия не открыла API и Gateway Discord для получения голосового адреса.", requiresManualRetry: true);
                     Log("Временная стратегия открыла API и Gateway. Теперь подключитесь к голосовому каналу; голос ещё не проверен.");
                 }
-                for (var attempt = 0; attempt < 20 && endpoint == null; attempt++)
+                for (var attempt = 0; attempt < 20 && endpoints.Count == 0; attempt++)
                 {
                     await Task.Delay(3000, ct);
-                    endpoint = GetVoiceEndpoint();
+                    endpoints = GetVoiceEndpoints();
                 }
             }
             finally { if (bootstrap) await runner.StopAsync(); }
-            if (endpoint == null) throw new ConnectionFailure("Не найден адрес голосового сервера. Войдите в канал Discord или укажите адрес в настройках.", true, requiresManualRetry: true);
+            if (endpoints.Count == 0) throw new ConnectionFailure("Не найден адрес голосового сервера. Войдите в канал Discord или укажите адрес в настройках.", true, requiresManualRetry: true);
         }
-        if (endpoint != null) Log("Проверяем голосовой сервер: " + endpoint.Authority);
+        if (endpoints.Count > 0) Log("Голосовые серверы для проверки: " + string.Join(", ", endpoints.Select(e => e.Authority)));
         IsVerified = false;
         Results.Clear();
         lastProbe = null;
@@ -412,7 +413,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
             if (fullScan && probe == null && outcome.StartsWith("Запуск", StringComparison.Ordinal))
                 SetStatus("Полный подбор" + outcome["Запуск".Length..] + " · " + item.Name);
         }, Log);
-        var selected = await session.ConnectAsync(active, pending, new DiscordProbe(endpoint, Services, GetVoiceEndpoint).RunAsync, manual, ct, preferred,
+        var selected = await session.ConnectAsync(active, pending, new DiscordProbe(endpoints, Services, GetVoiceEndpoints).RunAsync, manual, ct, preferred,
             compareQuality: manual == null, fullScan: fullScan);
         networkId = CurrentNetwork.Read();
         if (startedNetwork != networkId || startedVersion != environmentVersion)
@@ -516,7 +517,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     }
 
     private void Save() => state.Save(settingsPath);
-    private Uri? GetVoiceEndpoint()
+    private IReadOnlyList<Uri> GetVoiceEndpoints()
     {
         if (VoiceAddress.Trim().Length > 0)
         {
@@ -524,16 +525,19 @@ internal sealed class MainViewModel : PresentationState, IDisposable
             state.VoiceServer = endpoint.Authority;
             state.VoiceObservedAt = DateTimeOffset.UtcNow;
             state.VoiceLogFingerprint = null;
-            return endpoint;
+            return [endpoint];
         }
-        if (VoiceDiscovery.Find(Log) is not { } found) return null;
+        var recent = voiceDiscovery.Find(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData));
+        if (recent.Count == 0) return [];
+        var found = recent[0];
         if (found.Fingerprint != state.VoiceLogFingerprint)
         {
             state.VoiceServer = found.Endpoint.Authority;
             state.VoiceObservedAt = found.ObservedAt;
             state.VoiceLogFingerprint = found.Fingerprint;
         }
-        return state.VoiceObservedAt > DateTimeOffset.UtcNow.AddDays(-7) ? found.Endpoint : null;
+        return recent.Where(item => item.Fingerprint != state.VoiceLogFingerprint || state.VoiceObservedAt > DateTimeOffset.UtcNow.AddDays(-7))
+            .Select(item => item.Endpoint).ToArray();
     }
     private void SetBusy(bool busy)
     {
