@@ -274,6 +274,25 @@ try
     await session.ConnectAsync(oldPackage, null, _ => Task.FromResult(TimedSession()), null, default, compareQuality: true);
     Check(fake.Started.Distinct().Count() == 3 && fake.Started.First() == "general (ALT10)",
         "Next connection after settings reload uses the saved winner and quick selection");
+    fake = new FakeRunner(); calls = 0; saves = 0;
+    sessionState = new AppState { ActivePackage = "old", LastStrategy = "general" };
+    var externalConflict = new ConnectionFailure("winws, PID 12345: stop the separate service");
+    session = new ConnectionSession(fake, sessionState, () => saves++, (_, _, _) => { }, _ => { });
+    try
+    {
+        await session.ConnectAsync(oldPackage, null, _ =>
+        {
+            if (++calls == 3) fake.StartError = externalConflict;
+            return Task.FromResult(TimedSession());
+        }, null, default, fullScan: true);
+        throw new Exception("Persistent external process conflict accepted");
+    }
+    catch (ConnectionFailure ex)
+    {
+        Check(ReferenceEquals(ex, externalConflict) && fake.Started.Count == 2 && !fake.IsRunning && saves == 0 &&
+            sessionState.LastStrategy == "general" && ConnectionHelp.Describe(ex, true, fail).Message == ex.Message,
+            "Mid-selection external conflict stops further ALTs, preserves state and exposes the PID error");
+    }
     await LocalProtocolChecks.RunAsync(Check);
     var fixtures = args.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
     if (fixtures.Length > 0)
@@ -317,13 +336,16 @@ Console.WriteLine($"{checks} checks passed.");
 
 sealed class FakeRunner : IStrategyRunner
 {
+    public Exception? StartError { get; set; }
     public bool IsRunning { get; private set; }
     public string? CurrentPackage { get; private set; }
     public List<string> Started { get; } = [];
     public Task StartAsync(Package package, Strategy strategy, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        IsRunning = true; CurrentPackage = package.Id; Started.Add(strategy.Name);
+        Started.Add(strategy.Name);
+        if (StartError != null) throw StartError;
+        IsRunning = true; CurrentPackage = package.Id;
         return Task.CompletedTask;
     }
     public Task StopAsync() { IsRunning = false; return Task.CompletedTask; }

@@ -1,7 +1,7 @@
 name: Windows checks
 on:
   push:
-    branches: [main, feature/first-full-selection]
+    branches: [main, fix/strategy-process-handoff]
   pull_request:
   workflow_dispatch:
 

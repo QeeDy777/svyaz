@@ -54,7 +54,7 @@ internal static class WindowsChecks
                 model.HasError = false;
                 Check(model.DiscordSummary.Contains("выключен") && model.Telegram.Summary.Contains("выключен"), "Separate service status starts disconnected");
                 Check(model.ConnectionTime.Contains("не запущено") && model.LastCheck.Contains("пока нет"), "No invented connection time or successful check");
-                Check(model.AppUpdates.CurrentNotes.Contains("0.11.1") && model.AppUpdates.EarlierNotes.Contains("0.6.1"), "Release history available offline");
+                Check(model.AppUpdates.CurrentNotes.Contains("0.11.2") && model.AppUpdates.EarlierNotes.Contains("0.6.1"), "Release history available offline");
                 model.Report(new("fixture", "unused"), new(new(true, "sensitive-sentinel"), new(true, "sensitive-sentinel"), new(false, "sensitive-sentinel"), new(new(true, "sensitive-sentinel"), new(false, "sensitive-sentinel"))), "Failed");
                 model.ShowServiceResults(null);
                 var report = model.CreateDiagnosticReport();
@@ -86,6 +86,7 @@ internal static class WindowsChecks
                 Check(!InstallerMaintenance.OwnTask("DiscordRoute-test", TaskXml(@"C:\App\Versions-other\Связь.exe"), @"C:\App"), "sibling path preserved");
             }
             finally { ((MainViewModel)window.DataContext).Dispose(); }
+            Task.Run(() => ProcessHandoffChecks.RunAsync(Check)).GetAwaiter().GetResult();
             Task.Run(() => CheckProxyAsync()).GetAwaiter().GetResult();
             SelfUpdateChecks.Run(args.Length >= 1 ? args[0] : null, Check, args.Length >= 2 ? args[1] : null);
             Console.WriteLine("Windows checks passed. Telegram messages/calls were not tested.");

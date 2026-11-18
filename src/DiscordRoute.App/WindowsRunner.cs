@@ -11,22 +11,40 @@ internal sealed class WindowsRunner(Action<string> log, Func<GameFilterSettings>
     public string? StrategyName { get; private set; }
     public bool IsRunning => process.IsRunning;
 
-    public static void EnsureNoExternalProcess()
+    public static async Task EnsureNoExternalProcessAsync(CancellationToken ct)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var conflict = FindRunningProcess();
+            if (conflict == null) return;
+            if (attempt == 8)
+                throw new ConnectionFailure("Обнаружен работающий zapret (" + conflict + "). Остановите отдельный zapret или его службу перед подбором. «Связь» не завершает чужие процессы.");
+            // A stopped process or its job children may still appear during Windows teardown.
+            await Task.Delay(250, ct);
+        }
+    }
+
+    private static string? FindRunningProcess()
     {
         foreach (var name in new[] { "winws", "winws2" })
         {
             var processes = Process.GetProcessesByName(name);
-            var any = processes.Length > 0;
-            foreach (var item in processes) item.Dispose();
-            if (any) throw new InvalidOperationException("Уже работает другой zapret (" + name + "). Остановите его перед подбором; приложение не будет завершать чужой процесс.");
+            try
+            {
+                foreach (var item in processes)
+                    if (!item.HasExited) return name + ", PID " + item.Id;
+            }
+            finally { foreach (var item in processes) item.Dispose(); }
         }
+        return null;
     }
 
     public async Task StartAsync(Package package, Strategy strategy, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         await StopAsync();
-        EnsureNoExternalProcess();
+        await EnsureNoExternalProcessAsync(ct);
         var start = new ProcessStartInfo(Path.Combine(package.Root, "bin", "winws.exe"))
         {
             WorkingDirectory = Path.Combine(package.Root, "bin"), UseShellExecute = false,

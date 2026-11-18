@@ -45,6 +45,18 @@ static class LocalProtocolChecks
         check(await DiscordProtocol.ReadHelloAsync(new Uri(baseUrl + "/voice"), 8, deadline.Token), "Real WebSocket fragmented Hello");
         check(!await DiscordProtocol.ReadHelloAsync(new Uri(baseUrl + "/wrong"), 8, deadline.Token), "Real WebSocket wrong opcode rejected");
         check(!await DiscordProtocol.ReadHelloAsync(new Uri(baseUrl + "/large"), 8, deadline.Token), "Real WebSocket oversized payload rejected");
+        var oldVoice = new Uri(baseUrl + "/wrong");
+        Uri? currentVoice = oldVoice;
+        var changingVoice = new DiscordProbe(oldVoice, resolveVoiceEndpoint: () => currentVoice);
+        check(!(await changingVoice.RunVoiceAsync(deadline.Token)).Success, "Stale voice endpoint cannot pass the protocol check");
+        currentVoice = new Uri(baseUrl + "/voice");
+        check((await changingVoice.RunVoiceAsync(deadline.Token)).Success, "Next selection probe uses the newly discovered voice server");
+        currentVoice = null;
+        check((await changingVoice.RunVoiceAsync(deadline.Token)).Success, "Temporarily unavailable logs retain the last discovered voice endpoint");
+        try { await new DiscordProbe(null).RunVoiceAsync(deadline.Token); throw new Exception("Missing voice address accepted"); }
+        catch (InvalidDataException) { check(true, "Missing voice address never passes the probe"); }
+        var fixedVoice = new DiscordProbe(new Uri(baseUrl + "/voice"));
+        check((await fixedVoice.RunVoiceAsync(deadline.Token)).Success, "Explicit voice endpoint still works without a resolver");
         using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(150));
         try { await DiscordProtocol.ReadHelloAsync(new Uri(baseUrl + "/wait"), 8, timeout.Token); throw new Exception("Expected timeout"); }
         catch (OperationCanceledException) { check(true, "Real WebSocket cancellation"); }

@@ -11,18 +11,26 @@ public sealed record ProbeResult(CheckResult Api, CheckResult Gateway, CheckResu
         new[] { Api, Gateway, Voice, YouTube.Site, YouTube.GoogleVideo }.Any(c => !c.Skipped);
 }
 
-public sealed class DiscordProbe(Uri? voiceEndpoint, ServiceSelection? selected = null)
+public sealed class DiscordProbe(Uri? voiceEndpoint, ServiceSelection? selected = null, Func<Uri?>? resolveVoiceEndpoint = null)
 {
     public async Task<ProbeResult> RunAsync(CancellationToken ct)
     {
         var services = selected ?? new();
         var skipped = new CheckResult(false, "Не выбрано", true);
-        var voice = services.Discord ? MeasureAsync(async token => await DiscordProtocol.ReadHelloAsync(voiceEndpoint ?? throw new InvalidDataException("Нет адреса голосового сервера."), 8, token), ct) : Task.FromResult(skipped);
+        var voice = services.Discord ? RunVoiceAsync(ct) : Task.FromResult(skipped);
         var control = services.Discord ? RunControlAsync(ct) : Task.FromResult((Api: skipped, Gateway: skipped));
         var youtube = services.YouTube ? YouTubeProbe.RunAsync(ct) : Task.FromResult(new YouTubeResult(skipped, skipped));
         await Task.WhenAll(voice, control, youtube);
         var (api, gateway) = await control;
         return new(api, gateway, await voice, await youtube);
+    }
+
+    internal Task<CheckResult> RunVoiceAsync(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        voiceEndpoint = resolveVoiceEndpoint?.Invoke() ?? voiceEndpoint;
+        return MeasureAsync(token => DiscordProtocol.ReadHelloAsync(voiceEndpoint ??
+            throw new InvalidDataException("Нет адреса голосового сервера."), 8, token), ct);
     }
 
     public static async Task<(CheckResult Api, CheckResult Gateway)> RunControlAsync(CancellationToken ct)
@@ -125,7 +133,7 @@ public sealed class SelectionEngine(IStrategyRunner runner, Func<CancellationTok
             await runner.StopAsync();
             report(strategy, null, fullScan ? chosenQuality != null ? "Запуск · подтверждение" : $"Запуск · {attempt}/{total}" : "Запуск");
             try { await runner.StartAsync(package, strategy, ct); }
-            catch (Exception ex) when (ex is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
+            catch (Exception ex) when (ex is not ConnectionFailure && ex is (IOException or InvalidOperationException or System.ComponentModel.Win32Exception))
             { report(strategy, null, "Ошибка запуска: " + ex.Message); return null; }
             var samples = new List<ProbeResult>();
             for (var pass = 0; pass < count; pass++)

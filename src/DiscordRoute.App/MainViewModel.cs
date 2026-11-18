@@ -349,7 +349,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
             Changed(nameof(SelectedStrategy));
         }
         if (!NetworkInterface.GetIsNetworkAvailable()) throw new ConnectionFailure("Нет сетевого подключения. Включите Wi-Fi или подключите кабель — повторим автоматически.");
-        if (!runner.IsRunning) WindowsRunner.EnsureNoExternalProcess();
+        if (!runner.IsRunning) await WindowsRunner.EnsureNoExternalProcessAsync(ct);
         networkId = CurrentNetwork.Read();
         var startedNetwork = networkId;
         var startedVersion = environmentVersion;
@@ -382,7 +382,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
                     {
                         ct.ThrowIfCancellationRequested();
                         try { await runner.StartAsync(package, item, ct); }
-                        catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception) { Log(ex.Message); continue; }
+                        catch (Exception ex) when (ex is not ConnectionFailure && ex is (IOException or System.ComponentModel.Win32Exception)) { Log(ex.Message); continue; }
                         var control = await DiscordProbe.RunControlAsync(ct);
                         Log(item.Name + " (получение адреса): API " + control.Api.Detail + "; Gateway " + control.Gateway.Detail);
                         if (!control.Api.Success || !control.Gateway.Success) continue;
@@ -412,7 +412,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
             if (fullScan && probe == null && outcome.StartsWith("Запуск", StringComparison.Ordinal))
                 SetStatus("Полный подбор" + outcome["Запуск".Length..] + " · " + item.Name);
         }, Log);
-        var selected = await session.ConnectAsync(active, pending, new DiscordProbe(endpoint, Services).RunAsync, manual, ct, preferred,
+        var selected = await session.ConnectAsync(active, pending, new DiscordProbe(endpoint, Services, GetVoiceEndpoint).RunAsync, manual, ct, preferred,
             compareQuality: manual == null, fullScan: fullScan);
         networkId = CurrentNetwork.Read();
         if (startedNetwork != networkId || startedVersion != environmentVersion)
