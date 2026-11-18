@@ -89,6 +89,8 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     public UiCommand ConnectCommand { get; }
     public UiCommand StopCommand { get; }
     public UiCommand PrimaryCommand => ShowDisconnect ? StopCommand : ConnectCommand;
+    public UiCommand ResetZapretCommand { get; }
+    public string ResetFeedback { get; private set => Set(ref field, value); } = "";
     public UiCommand UpdateCommand { get; }
     public UiCommand AutostartCommand { get; }
     public UiCommand AutoUpdateCommand { get; }
@@ -117,6 +119,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         FullScanCommand = new(() => ConnectSelectedAsync(fullScan: true), () => Services.UsesZapret && !AnyBusy && !exiting);
         ConnectCommand = new(() => ConnectSelectedAsync(), () => !AnyBusy && !exiting);
         UpdateCommand = new(() => RunAsync(ct => UpdateAsync(true, ct)), () => !IsBusy && !exiting);
+        ResetZapretCommand = new(ResetZapretAsync, () => ready && !IsBusy && !exiting);
         StopCommand = new(StopAsync, () => !exiting);
         AutostartCommand = new(() => RunAsync(async _ =>
         {
@@ -316,10 +319,55 @@ internal sealed class MainViewModel : PresentationState, IDisposable
 
     private void CompleteExit() { if (exiting && telegramExited && cancellation == null) ExitReady?.Invoke(); }
 
+    private async Task ResetZapretAsync()
+    {
+        var confirmed = false;
+        await RunAsync(async ct =>
+        {
+            confirmed = System.Windows.MessageBox.Show(
+                "Удалить скачанные пакеты zapret, пользовательские списки, кэш Game Filter и сохранённые альты? Текущее подключение zapret прервётся. Для загрузки пакета потребуется интернет.",
+                "Сбросить кэш zapret", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning,
+                System.Windows.MessageBoxResult.No) == System.Windows.MessageBoxResult.Yes;
+            if (!confirmed) return;
+            ct.ThrowIfCancellationRequested();
+            recovery.Stop();
+            ResetFeedback = "Останавливаем zapret и очищаем кэш…";
+            await runner.StopAsync();
+            await WindowsRunner.EnsureNoExternalProcessAsync(ct);
+            IsVerified = false;
+            lastSuccessfulCheck = null;
+            lastProbe = null;
+            lastError = null;
+            quality.Clear();
+            Results.Clear();
+            ShowServiceResults(null);
+            help = null;
+            SelectedStrategy = AutomaticStrategy;
+            SetStatus(ResetFeedback);
+            Log(ResetFeedback);
+            await ZapretCache.ResetAsync(Program.DataRoot, state, preferences);
+            RefreshPackage();
+            ct.ThrowIfCancellationRequested();
+            ResetFeedback = "Кэш очищен. Загружаем новый пакет zapret…";
+            SetStatus(ResetFeedback);
+            Log(ResetFeedback);
+            await UpdateAsync(true, ct);
+            if (Services.UsesZapret)
+            {
+                recovery.Enable();
+                ResetFeedback = "Пакет загружен. Идёт полный подбор альтов…";
+                await ConnectAsync(ct, fullScan: true);
+            }
+            else SetStatus("Кэш очищен. Новый пакет готов к подключению.");
+        });
+        if (confirmed) ResetFeedback = Status;
+    }
+
     private async Task UpdateAsync(bool force, CancellationToken ct)
     {
         if (!force && (!state.AutoUpdate || DateTimeOffset.UtcNow < nextUpdateAttempt)) return;
         nextUpdateAttempt = DateTimeOffset.UtcNow.AddHours(6);
+        if (state.ZapretResetPending) await ZapretCache.ResetAsync(Program.DataRoot, state, preferences);
         var active = packages.Open(state.ActivePackage);
         var pending = packages.Open(state.PendingPackage);
         Log("Проверка обновлений GitHub…");
@@ -545,7 +593,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
 
     private void RefreshCommands()
     {
-        RepairCommand.Refresh(); FullScanCommand.Refresh(); ConnectCommand.Refresh(); UpdateCommand.Refresh(); StopCommand.Refresh(); AutostartCommand.Refresh(); AutoUpdateCommand.Refresh(); GameFilterCommand.Refresh();
+        RepairCommand.Refresh(); FullScanCommand.Refresh(); ConnectCommand.Refresh(); UpdateCommand.Refresh(); ResetZapretCommand.Refresh(); StopCommand.Refresh(); AutostartCommand.Refresh(); AutoUpdateCommand.Refresh(); GameFilterCommand.Refresh();
         ServicesCommand.Refresh(); HelpCommand.Refresh();
     }
 

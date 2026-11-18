@@ -29,6 +29,7 @@ AppUpdateChecks.Run(Check);
 await YouTubeChecks.RunAsync(Check, args.Contains("--youtube-smoke"));
 TelegramMigrationChecks.Run(Check);
 await GameFilterChecks.RunAsync(Check);
+await ZapretCacheChecks.RunAsync(Check);
 var ui = new PresentationState();
 Check(!ui.ShowDisconnect && ui.PrimaryActionLabel == "Подключить", "Idle primary action connects");
 ui.IsBusy = true;

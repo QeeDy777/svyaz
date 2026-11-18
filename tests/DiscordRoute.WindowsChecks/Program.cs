@@ -32,6 +32,11 @@ internal static class WindowsChecks
                     window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
                     Check(((TabItem)tabs.Items[index]).ActualWidth > 40, name + " tab visible");
                     SaveScreenshot(window, name);
+                    if (index == 2)
+                    {
+                        var reset = (Button)window.FindName("ResetZapretButton");
+                        Check(reset.Command == ((MainViewModel)window.DataContext).ResetZapretCommand, "Settings expose the zapret cache reset command");
+                    }
                     if (index == 0)
                     {
                         var youtube = (ContentControl)window.FindName("YouTubeCheck");

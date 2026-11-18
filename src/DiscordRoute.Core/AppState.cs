@@ -4,6 +4,7 @@ namespace DiscordRoute.Core;
 
 public sealed class AppState
 {
+    public bool ZapretResetPending { get; set; }
     public string? ActivePackage { get; set; }
     public string? PendingPackage { get; set; }
     public string? PreviousPackage { get; set; }
