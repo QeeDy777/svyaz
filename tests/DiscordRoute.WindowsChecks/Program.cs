@@ -91,6 +91,7 @@ internal static class WindowsChecks
                 Check(!InstallerMaintenance.OwnTask("DiscordRoute-test", TaskXml(@"C:\App\Versions-other\Связь.exe"), @"C:\App"), "sibling path preserved");
             }
             finally { ((MainViewModel)window.DataContext).Dispose(); }
+            Task.Run(() => DriverCleanupChecks.RunAsync(Check)).GetAwaiter().GetResult();
             Task.Run(() => ProcessHandoffChecks.RunAsync(Check)).GetAwaiter().GetResult();
             Task.Run(() => CheckProxyAsync()).GetAwaiter().GetResult();
             SelfUpdateChecks.Run(args.Length >= 1 ? args[0] : null, Check, args.Length >= 2 ? args[1] : null);

@@ -20,7 +20,11 @@ internal static class ZapretCacheChecks
             var preferences = new ConvenienceState { Services = new() { Telegram = true }, QuietNotifications = false };
             preferences.NetworkStrategies.Add("network", "old");
 
-            try { await ZapretCache.ResetAsync(path, state, preferences); throw new Exception("Expected invalid cache directory failure"); }
+            try { await ZapretCache.ResetAsync(path, state, preferences, () =>
+                {
+                    check(Directory.Exists(package.FullName), "Driver removal runs before package files are deleted");
+                    return Task.CompletedTask;
+                }); throw new Exception("Expected invalid cache directory failure"); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
             var settings = Path.Combine(path, "settings.json");
             var resume = AppState.Load(settings);
@@ -28,7 +32,7 @@ internal static class ZapretCacheChecks
             File.Delete(Path.Combine(path, "GameFilter"));
             File.WriteAllText(Path.Combine(root.CreateSubdirectory("GameFilter").FullName, "ipset-all.txt"), "cached");
             var prefs = ConvenienceState.Load(Path.Combine(path, "preferences.json"));
-            await ZapretCache.ResetAsync(path, resume, prefs);
+            await ZapretCache.ResetAsync(path, resume, prefs, () => Task.CompletedTask);
             var clean = AppState.Load(settings);
             check(!clean.ZapretResetPending && clean.PreviousPackage == null && clean.PendingPackage == null &&
                 clean.LastStrategy == null && clean.VoiceServer == null && prefs.NetworkStrategies.Count == 0 &&

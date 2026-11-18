@@ -325,13 +325,13 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         await RunAsync(async ct =>
         {
             confirmed = System.Windows.MessageBox.Show(
-                "Удалить скачанные пакеты zapret, пользовательские списки, кэш Game Filter и сохранённые альты? Текущее подключение zapret прервётся. Для загрузки пакета потребуется интернет.",
+                "Выгрузить и удалить драйвер WinDivert «Связи», скачанные пакеты zapret, пользовательские списки, кэш Game Filter и сохранённые альты? Текущее подключение zapret прервётся. Для загрузки пакета потребуется интернет.",
                 "Сбросить кэш zapret", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning,
                 System.Windows.MessageBoxResult.No) == System.Windows.MessageBoxResult.Yes;
             if (!confirmed) return;
             ct.ThrowIfCancellationRequested();
             recovery.Stop();
-            ResetFeedback = "Останавливаем zapret и очищаем кэш…";
+            ResetFeedback = "Останавливаем zapret и удаляем WinDivert…";
             await runner.StopAsync();
             await WindowsRunner.EnsureNoExternalProcessAsync(ct);
             IsVerified = false;
@@ -345,7 +345,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
             SelectedStrategy = AutomaticStrategy;
             SetStatus(ResetFeedback);
             Log(ResetFeedback);
-            await ZapretCache.ResetAsync(Program.DataRoot, state, preferences);
+            await CompleteZapretResetAsync(ct);
             RefreshPackage();
             ct.ThrowIfCancellationRequested();
             ResetFeedback = "Кэш очищен. Загружаем новый пакет zapret…";
@@ -363,11 +363,15 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         if (confirmed) ResetFeedback = Status;
     }
 
+    private Task CompleteZapretResetAsync(CancellationToken ct) =>
+        ZapretCache.ResetAsync(Program.DataRoot, state, preferences, () =>
+            WinDivertCleanup.RemoveAsync(Path.Combine(Program.DataRoot, "Packages"), Log, ct));
+
     private async Task UpdateAsync(bool force, CancellationToken ct)
     {
         if (!force && (!state.AutoUpdate || DateTimeOffset.UtcNow < nextUpdateAttempt)) return;
         nextUpdateAttempt = DateTimeOffset.UtcNow.AddHours(6);
-        if (state.ZapretResetPending) await ZapretCache.ResetAsync(Program.DataRoot, state, preferences);
+        if (state.ZapretResetPending) await CompleteZapretResetAsync(ct);
         var active = packages.Open(state.ActivePackage);
         var pending = packages.Open(state.PendingPackage);
         Log("Проверка обновлений GitHub…");

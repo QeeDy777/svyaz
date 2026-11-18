@@ -2,7 +2,7 @@ namespace DiscordRoute.Core;
 
 public static class ZapretCache
 {
-    public static async Task ResetAsync(string dataRoot, AppState state, ConvenienceState preferences)
+    public static async Task ResetAsync(string dataRoot, AppState state, ConvenienceState preferences, Func<Task> removeDriver)
     {
         var settings = Path.Combine(dataRoot, "settings.json");
         state.ZapretResetPending = true;
@@ -13,6 +13,7 @@ public static class ZapretCache
         preferences.NetworkStrategies.Clear();
         preferences.Save(Path.Combine(dataRoot, "preferences.json"));
 
+        await removeDriver();
         await Task.Run(() =>
         {
             foreach (var name in new[] { "Packages", "GameFilter" })
