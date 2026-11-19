@@ -29,7 +29,7 @@ public partial class App : Application
             Resources[key] = !SystemParameters.HighContrast ? original : key switch
             {
                 "BrandPaper" or "BrandPanel" or "BrandPanel2" or "BrandInput" or "BrandButton"
-                    or "BrandHero" or "BrandDial" or "BrandOnAccent" or "BrandAccentTint" => SystemColors.WindowBrush,
+                    or "BrandHero" or "BrandOnAccent" or "BrandAccentTint" => SystemColors.WindowBrush,
                 _ => SystemColors.WindowTextBrush
             };
     }

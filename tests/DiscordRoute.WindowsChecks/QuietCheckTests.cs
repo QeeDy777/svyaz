@@ -1,7 +1,10 @@
 using System.Windows;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Threading;
 using DiscordRoute.App;
+using static WindowsChecks;
 
 internal static class QuietCheckTests
 {
@@ -9,6 +12,7 @@ internal static class QuietCheckTests
     {
         tabs.SelectedIndex = 0;
         ((ScrollViewer)((TabItem)tabs.Items[0]).Content).ScrollToTop();
+        CheckPrimaryAction(window, model, check);
         model.IsProcessRunning = true;
         model.IsVerified = true;
         check(model.Heading == "Связь включена", "Running connection has a stable heading independent of probe status");
@@ -16,6 +20,7 @@ internal static class QuietCheckTests
         check(!model.IsVerified && model.Heading == "Связь включена" && !model.ShowProgress,
             "Network invalidation cannot claim that an idle connection is being checked");
         capture("connection-heading");
+        CheckPrimaryAction(window, model, check);
         model.IsProcessRunning = false;
         model.Telegram.Recovery.Enable();
         check(model.Heading == "Ожидаем подключения", "Recovery intent without a process never claims an active connection or probe");
@@ -41,6 +46,7 @@ internal static class QuietCheckTests
         window.UpdateLayout();
         check(model.ShowProgress && model.Heading.Contains("Проверяем") && ((ProgressBar)window.FindName("ConnectionProgress")).IsVisible,
             "Manual operation still displays progress");
+        CheckPrimaryAction(window, model, check);
         gate.SetResult(); Finish(manual);
         gate = new();
         quiet = model.RunAsync(ct => gate.Task.WaitAsync(ct), background: true);
@@ -66,6 +72,21 @@ internal static class QuietCheckTests
         check(model.HasError && model.Heading.Contains("внимание"), "Background Discord errors remain visible");
         model.StopCommand.Execute(null);
         Finish(ConnectionOnlyChecks.RunAsync(model, check));
+    }
+
+    private static void CheckPrimaryAction(MainWindow window, MainViewModel model, Action<bool, string> check)
+    {
+        window.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+        var button = (Button)window.FindName("ConnectionAction");
+        var label = Visuals<TextBlock>(button).Single(t => t.Text == model.PrimaryActionLabel);
+        var peer = new ButtonAutomationPeer(button);
+        check(button.Command == model.PrimaryCommand && button.IsTabStop && peer.IsKeyboardFocusable() && peer.GetName() == label.Text,
+            "The primary action has a keyboard target and a matching screen reader name: " + label.Text);
+        var center = label.TranslatePoint(new Point(label.ActualWidth / 2, label.ActualHeight / 2), window);
+        var hit = window.InputHitTest(center);
+        if (hit is ContentElement content) hit = ContentOperations.GetParent(content) as IInputElement;
+        check(label.ActualWidth > 0 && label.ActualHeight > 0 && hit is Visual visual && (visual == button || button.IsAncestorOf(visual)),
+            "Clicking the visible caption reaches the primary action: " + label.Text);
     }
 
     private static void Finish(Task operation)

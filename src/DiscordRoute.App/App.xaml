@@ -19,7 +19,6 @@
         <SolidColorBrush x:Key="BrandButton" Color="#303437"/>
         <SolidColorBrush x:Key="BrandHover" Color="#FFC88E"/>
         <SolidColorBrush x:Key="BrandHeroLine" Color="#665344"/>
-        <SolidColorBrush x:Key="BrandDial" Color="#302A24"/>
         <RadialGradientBrush x:Key="BrandHero" Center="1,1.2" GradientOrigin="1,1.2" RadiusX="0.85" RadiusY="1.15">
             <GradientStop Color="#9F6540" Offset="0"/>
             <GradientStop Color="#513B2C" Offset="0.36"/>
@@ -29,7 +28,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate>
-                        <Rectangle Margin="-2" RadiusX="7" RadiusY="7" Stroke="{DynamicResource BrandAccent}" StrokeThickness="2"/>
+                        <Rectangle Margin="-3" RadiusX="9" RadiusY="9" Stroke="{DynamicResource BrandAccent}" StrokeThickness="2"/>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -59,6 +58,40 @@
                 <Trigger Property="IsPressed" Value="True"><Setter Property="Background" Value="{DynamicResource BrandAccent}"/><Setter Property="BorderBrush" Value="{DynamicResource BrandOnAccent}"/></Trigger>
                 <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.55"/><Setter Property="Cursor" Value="Arrow"/></Trigger>
             </Style.Triggers>
+        </Style>
+        <Style x:Key="ConnectionButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="ContentTemplate"><Setter.Value>
+                <DataTemplate>
+                    <Grid x:Name="ActionContent">
+                        <Grid.RenderTransform><TranslateTransform/></Grid.RenderTransform>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <Path Data="M 12,2 L 12,10 M 6,5 A 8,8 0 1 0 18,5"
+                            Width="16" Height="17" Stretch="Uniform" VerticalAlignment="Center"
+                            Stroke="{DynamicResource BrandOnAccent}" StrokeThickness="1.8"
+                            StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                        <TextBlock Grid.Column="1" Text="{Binding}" TextWrapping="Wrap" TextAlignment="Center"
+                            Margin="9,0,0,0" VerticalAlignment="Center"/>
+                    </Grid>
+                    <DataTemplate.Triggers>
+                        <MultiDataTrigger>
+                            <MultiDataTrigger.Conditions>
+                                <Condition Binding="{Binding IsPressed, RelativeSource={RelativeSource AncestorType={x:Type Button}}}" Value="True"/>
+                                <Condition Binding="{Binding Path=(SystemParameters.ClientAreaAnimation)}" Value="True"/>
+                                <Condition Binding="{Binding Path=(SystemParameters.HighContrast)}" Value="False"/>
+                            </MultiDataTrigger.Conditions>
+                            <MultiDataTrigger.EnterActions>
+                                <BeginStoryboard Name="PressFeedback">
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="ActionContent" Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.Y)"
+                                            To="1.5" Duration="0:0:0.07" DecelerationRatio="1"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </MultiDataTrigger.EnterActions>
+                            <MultiDataTrigger.ExitActions><RemoveStoryboard BeginStoryboardName="PressFeedback"/></MultiDataTrigger.ExitActions>
+                        </MultiDataTrigger>
+                    </DataTemplate.Triggers>
+                </DataTemplate>
+            </Setter.Value></Setter>
         </Style>
         <Style x:Key="QuietButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Background" Value="{DynamicResource BrandButton}"/>

@@ -1,8 +1,8 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
-using System.Windows.Media;
 using DiscordRoute.App;
+using static WindowsChecks;
 
 internal static class UpdateNoticeChecks
 {
@@ -69,8 +69,13 @@ internal static class UpdateNoticeChecks
         tabs.SelectedIndex = 3;
         window.UpdateLayout();
         var journal = Visuals<TextBox>(window).Single(t => t.IsReadOnly);
+        var hint = (FrameworkElement)window.FindName("EmptyJournalHint");
+        journal.Text = "";
+        window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        check(hint.IsVisible && !hint.IsHitTestVisible, "An empty journal shows a hint without intercepting clicks");
         journal.Text = string.Join('\n', Enumerable.Repeat("Строка журнала — проверка прокрутки", 200));
-        window.UpdateLayout();
+        window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        check(!hint.IsVisible, "The hint clears when journal entries appear");
         journal.ScrollToEnd();
         window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         check(journal.VerticalOffset > 0 && journal.SelectedText == "", "Journal remains scrollable and selectable with the shared gutter");
@@ -79,12 +84,5 @@ internal static class UpdateNoticeChecks
         updates.ExitAsync().GetAwaiter().GetResult();
         updates.SetPending(next);
         check(notices == 2 && !updates.IsNoticeVisible, "No late notifications during exit");
-    }
-
-    private static IEnumerable<T> Visuals<T>(DependencyObject parent) where T : DependencyObject
-    {
-        if (parent is T match) yield return match;
-        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
-            foreach (var child in Visuals<T>(VisualTreeHelper.GetChild(parent, i))) yield return child;
     }
 }

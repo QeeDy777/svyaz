@@ -15,31 +15,6 @@
             <Setter Property="TextWrapping" Value="Wrap"/>
             <Setter Property="Margin" Value="0,0,0,14"/>
         </Style>
-        <Style x:Key="DialButton" TargetType="Button">
-            <Setter Property="Width" Value="74"/>
-            <Setter Property="Height" Value="74"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Foreground" Value="{DynamicResource BrandAccent}"/>
-            <Setter Property="FocusVisualStyle" Value="{StaticResource BrandFocus}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Grid>
-                            <Ellipse Fill="{DynamicResource BrandDial}" Stroke="{DynamicResource BrandHeroLine}"/>
-                            <Ellipse x:Name="Rim" Margin="5" Stroke="{TemplateBinding Foreground}" StrokeThickness="4" StrokeDashArray="0.9,0.35"/>
-                            <Path Data="M 12,3 L 12,12 M 6,6 A 9,9 0 1 0 18,6"
-                                Width="25" Height="28" Stretch="Uniform" Stroke="{TemplateBinding Foreground}" StrokeThickness="2"
-                                StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
-                        </Grid>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Rim" Property="StrokeThickness" Value="6"/></Trigger>
-                            <Trigger Property="IsPressed" Value="True"><Setter Property="Opacity" Value="0.76"/></Trigger>
-                            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.5"/></Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
         <DataTemplate x:Key="NavHeader">
             <StackPanel HorizontalAlignment="Center">
                 <Path Data="{Binding Tag, RelativeSource={RelativeSource AncestorType={x:Type TabItem}}}" Width="17" Height="17"
@@ -49,27 +24,26 @@
             </StackPanel>
         </DataTemplate>
         <DataTemplate DataType="{x:Type local:ServiceCheck}">
-            <Grid ToolTip="{Binding Detail}" MinHeight="32">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <Grid ToolTip="{Binding Detail}" MinHeight="36">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto" SharedSizeGroup="CheckResult"/></Grid.ColumnDefinitions>
+                <Border Grid.ColumnSpan="2" Height="1" VerticalAlignment="Bottom" Background="{DynamicResource BrandLine}"/>
                 <TextBlock Text="{Binding Name}" FontSize="14" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,6,0"/>
-                <Border Grid.Column="1" Background="{DynamicResource BrandPanel2}" Padding="9,3" CornerRadius="11" VerticalAlignment="Center">
-                    <StackPanel Orientation="Horizontal">
-                        <StackPanel.Style>
-                            <Style TargetType="StackPanel">
-                                <Setter Property="TextElement.Foreground" Value="{DynamicResource BrandMuted}"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Kind}" Value="Passed"><Setter Property="TextElement.Foreground" Value="{DynamicResource BrandGreen}"/></DataTrigger>
-                                    <DataTrigger Binding="{Binding Kind}" Value="Checking"><Setter Property="TextElement.Foreground" Value="{DynamicResource BrandAccent}"/></DataTrigger>
-                                    <DataTrigger Binding="{Binding Kind}" Value="Unconfirmed"><Setter Property="TextElement.Foreground" Value="{DynamicResource BrandWarning}"/></DataTrigger>
-                                    <DataTrigger Binding="{Binding Kind}" Value="Failed"><Setter Property="TextElement.Foreground" Value="{DynamicResource BrandError}"/></DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </StackPanel.Style>
-                        <Ellipse Width="6" Height="6" VerticalAlignment="Center" Margin="0,0,6,0"
-                            Fill="{Binding Foreground, ElementName=CheckText}"/>
-                        <TextBlock x:Name="CheckText" Text="{Binding Label}" FontSize="12" FontWeight="SemiBold"/>
-                    </StackPanel>
-                </Border>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="TextElement.Foreground" Value="{DynamicResource BrandMuted}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Kind}" Value="Passed"><Setter Property="TextElement.Foreground" Value="{DynamicResource BrandGreen}"/></DataTrigger>
+                                <DataTrigger Binding="{Binding Kind}" Value="Checking"><Setter Property="TextElement.Foreground" Value="{DynamicResource BrandAccent}"/></DataTrigger>
+                                <DataTrigger Binding="{Binding Kind}" Value="Unconfirmed"><Setter Property="TextElement.Foreground" Value="{DynamicResource BrandWarning}"/></DataTrigger>
+                                <DataTrigger Binding="{Binding Kind}" Value="Failed"><Setter Property="TextElement.Foreground" Value="{DynamicResource BrandError}"/></DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+                    <Ellipse Width="6" Height="6" VerticalAlignment="Center" Margin="0,0,6,0"
+                        Fill="{Binding Foreground, ElementName=CheckText}"/>
+                    <TextBlock x:Name="CheckText" Text="{Binding Label}" FontSize="12" FontWeight="SemiBold"/>
+                </StackPanel>
             </Grid>
         </DataTemplate>
     </Window.Resources>
@@ -109,54 +83,37 @@
                 <ScrollViewer Style="{StaticResource PageScrollViewer}" Foreground="{DynamicResource BrandInk}" FontSize="14" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="16,16,0,18">
                     <StackPanel>
                         <Border Background="{DynamicResource BrandHero}" BorderBrush="{DynamicResource BrandHeroLine}"
-                            BorderThickness="1" CornerRadius="19" Margin="0,0,0,10">
+                            BorderThickness="1" CornerRadius="16" Margin="0,0,0,16">
                             <Grid>
-                                <Path IsHitTestVisible="False" Width="145" Height="110" Stretch="Fill" HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                                    Margin="0,0,8,6" Stroke="{DynamicResource BrandAccent}" StrokeThickness="0.8" Opacity="0.18"
+                                <Path IsHitTestVisible="False" Width="104" Height="55" Stretch="Fill" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                    Margin="0,10,12,0" Stroke="{DynamicResource BrandAccent}" StrokeThickness="1" Opacity="0.13"
                                     Data="M 20,108 Q 34,57 137,28 M 37,108 Q 50,68 137,43 M 55,108 Q 65,80 137,58 M 77,108 Q 88,88 137,74 M 101,108 Q 114,98 137,90"/>
-                                <Grid Margin="17,16" MinHeight="108">
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="98"/></Grid.ColumnDefinitions>
-                                    <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
-                                        <TextBlock Text="Подключение" Foreground="{DynamicResource BrandAccent}" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                                        <TextBlock Text="{Binding Heading}" FontSize="26" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
-                                        <TextBlock Text="{Binding ConnectionStatus}" Style="{StaticResource SecondaryText}" FontSize="13" Margin="0,7,0,0"/>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                        <Button Style="{StaticResource DialButton}" Command="{Binding PrimaryCommand}" AutomationProperties.Name="{Binding PrimaryActionLabel}" ToolTip="{Binding PrimaryActionLabel}"/>
-                                        <TextBlock Text="{Binding PrimaryActionLabel}" TextWrapping="Wrap" TextAlignment="Center" FontWeight="SemiBold" FontSize="12"
-                                            Foreground="{DynamicResource BrandAccent}" Margin="0,6,0,0"/>
-                                    </StackPanel>
-                                </Grid>
+                                <StackPanel Margin="16">
+                                    <TextBlock Text="{Binding Heading}" FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+                                    <TextBlock Text="{Binding ConnectionStatus}" Style="{StaticResource SecondaryText}" FontSize="13" Margin="0,4,0,0"/>
+                                    <TextBlock Text="{Binding CurrentStrategy, StringFormat='Текущий альт · {0}'}" Style="{StaticResource SecondaryText}" FontSize="12" Margin="0,4,0,0"
+                                        Visibility="{Binding IsProcessRunning, Converter={StaticResource VisibleIfTrue}}"/>
+                                    <Button x:Name="ConnectionAction" Content="{Binding PrimaryActionLabel}" Style="{StaticResource ConnectionButton}" Margin="0,14,0,0"
+                                        Command="{Binding PrimaryCommand}" AutomationProperties.Name="{Binding PrimaryActionLabel}" ToolTip="{Binding PrimaryActionLabel}"/>
+                                </StackPanel>
                             </Grid>
                         </Border>
                         <ProgressBar x:Name="ConnectionProgress" Height="3" Margin="0,0,0,8" Value="100"
                             IsIndeterminate="{DynamicResource {x:Static SystemParameters.ClientAreaAnimationKey}}"
                             Visibility="{Binding ShowProgress, Converter={StaticResource VisibleIfTrue}}" AutomationProperties.Name="Выполняется операция"/>
-                        <Border Style="{StaticResource Card}" Padding="0" Margin="0,0,0,14">
-                            <Grid Margin="0,10">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="6*"/><ColumnDefinition Width="5*"/></Grid.ColumnDefinitions>
-                                <StackPanel Margin="13,0">
-                                    <TextBlock Text="Сервисы" Style="{StaticResource SecondaryText}" FontSize="12"/>
-                                    <TextBlock Text="{Binding SelectedServicesSummary}" FontSize="13" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,3,0,0"/>
-                                </StackPanel>
-                                <Border Grid.Column="1" BorderBrush="{DynamicResource BrandLine}" BorderThickness="1,0,0,0" Padding="13,0">
-                                    <StackPanel>
-                                        <TextBlock Text="Текущий альт" Style="{StaticResource SecondaryText}" FontSize="12"/>
-                                        <TextBlock Text="{Binding CurrentStrategy}" FontSize="13" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,3,0,0"/>
-                                    </StackPanel>
-                                </Border>
-                            </Grid>
-                        </Border>
-                        <TextBlock Text="Проверки" FontSize="21" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                        <Border Style="{StaticResource Card}" Padding="12,5" Margin="0,0,0,10">
-                            <StackPanel>
-                                <ContentControl Content="{Binding Api}" Visibility="{Binding Services.Discord, Converter={StaticResource VisibleIfTrue}}"/>
-                                <ContentControl Content="{Binding Gateway}" Visibility="{Binding Services.Discord, Converter={StaticResource VisibleIfTrue}}"/>
-                                <ContentControl Content="{Binding Voice}" Visibility="{Binding Services.Discord, Converter={StaticResource VisibleIfTrue}}"/>
-                                <ContentControl x:Name="YouTubeCheck" Content="{Binding YouTube}" Visibility="{Binding Services.YouTube, Converter={StaticResource VisibleIfTrue}}"/>
-                                <ContentControl Content="{Binding Telegram.ServerCheck}" Visibility="{Binding Services.Telegram, Converter={StaticResource VisibleIfTrue}}"/>
-                            </StackPanel>
-                        </Border>
+                        <Grid Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <TextBlock Text="Проверки" FontSize="21" FontWeight="SemiBold"/>
+                            <TextBlock Grid.Column="1" Text="{Binding SelectedServicesSummary}" ToolTip="Выбранные сервисы"
+                                Style="{StaticResource SecondaryText}" FontSize="12" Margin="12,0,0,0" TextAlignment="Right" VerticalAlignment="Center"/>
+                        </Grid>
+                        <StackPanel Grid.IsSharedSizeScope="True" Margin="0,0,0,10">
+                            <ContentControl Content="{Binding Api}" Visibility="{Binding Services.Discord, Converter={StaticResource VisibleIfTrue}}"/>
+                            <ContentControl Content="{Binding Gateway}" Visibility="{Binding Services.Discord, Converter={StaticResource VisibleIfTrue}}"/>
+                            <ContentControl Content="{Binding Voice}" Visibility="{Binding Services.Discord, Converter={StaticResource VisibleIfTrue}}"/>
+                            <ContentControl x:Name="YouTubeCheck" Content="{Binding YouTube}" Visibility="{Binding Services.YouTube, Converter={StaticResource VisibleIfTrue}}"/>
+                            <ContentControl Content="{Binding Telegram.ServerCheck}" Visibility="{Binding Services.Telegram, Converter={StaticResource VisibleIfTrue}}"/>
+                        </StackPanel>
                         <Border x:Name="QualityPanel" Background="{DynamicResource BrandPanel2}" CornerRadius="12" Padding="10" Margin="0,0,0,12" Visibility="{Binding HasQuality, Converter={StaticResource VisibleIfTrue}}">
                             <StackPanel>
                                 <TextBlock Text="{Binding QualitySummary}" TextWrapping="Wrap" FontSize="12"/>
@@ -347,10 +304,22 @@
                     <TextBlock Text="Журнал" Style="{StaticResource PageTitle}"/>
                     <TextBlock Grid.Row="1" Text="Проверки, обновления и сообщения zapret. Выделите текст, чтобы скопировать." Style="{StaticResource SecondaryText}" Margin="0,0,0,12"/>
                     <Border Grid.Row="2" Background="{DynamicResource BrandInput}" BorderBrush="{DynamicResource BrandLine}" BorderThickness="1" CornerRadius="16" Padding="2">
-                        <TextBox Background="Transparent" BorderThickness="0" Foreground="{DynamicResource BrandInk}" Text="{Binding Journal, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" FontFamily="Cascadia Mono, Consolas" FontSize="12"
-                            TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Padding="14" AutomationProperties.Name="Журнал работы">
-                            <TextBox.Resources><Style TargetType="ScrollViewer" BasedOn="{StaticResource PageScrollViewer}"/></TextBox.Resources>
-                        </TextBox>
+                        <Grid>
+                            <TextBox x:Name="JournalEntries" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource BrandInk}" Text="{Binding Journal, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" FontFamily="Cascadia Mono, Consolas" FontSize="12"
+                                TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Padding="14" AutomationProperties.Name="Журнал работы">
+                                <TextBox.Resources><Style TargetType="ScrollViewer" BasedOn="{StaticResource PageScrollViewer}"/></TextBox.Resources>
+                            </TextBox>
+                            <TextBlock x:Name="EmptyJournalHint" Text="Записей пока нет" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource SecondaryText}">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Text, ElementName=JournalEntries}" Value=""><Setter Property="Visibility" Value="Visible"/></DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
                     </Border>
                 </Grid>
             </TabItem>

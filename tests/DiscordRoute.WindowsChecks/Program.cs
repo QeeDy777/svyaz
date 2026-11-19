@@ -62,7 +62,8 @@ internal static class WindowsChecks
                 model.HasError = false;
                 Check(model.DiscordSummary.Contains("выключен") && model.Telegram.Summary.Contains("выключен"), "Separate service status starts disconnected");
                 Check(model.ConnectionTime.Contains("не запущено") && model.LastCheck.Contains("пока нет"), "No invented connection time or successful check");
-                Check(model.AppUpdates.CurrentNotes.Contains("0.12.0") && model.AppUpdates.EarlierNotes.Contains("0.6.1"), "Release history available offline");
+                Check(model.AppUpdates.CurrentNotes.StartsWith(AppUpdater.RunningVersion + " ·", StringComparison.Ordinal) &&
+                    model.AppUpdates.EarlierNotes.Contains("0.12.0") && model.AppUpdates.EarlierNotes.Contains("0.6.1"), "Release history available offline");
                 model.Report(new("fixture", "unused"), new(new(true, "sensitive-sentinel"), new(true, "sensitive-sentinel"), new(false, "sensitive-sentinel"), new(new(true, "sensitive-sentinel"), new(false, "sensitive-sentinel"))), "Failed");
                 model.ShowServiceResults(null);
                 var report = model.CreateDiagnosticReport();
@@ -138,6 +139,13 @@ internal static class WindowsChecks
     }
 
     private static string TaskXml(string path) => "<Task xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\"><Actions><Exec><Command>" + path + "</Command></Exec></Actions></Task>";
+
+    internal static IEnumerable<T> Visuals<T>(DependencyObject parent) where T : DependencyObject
+    {
+        if (parent is T match) yield return match;
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            foreach (var child in Visuals<T>(VisualTreeHelper.GetChild(parent, i))) yield return child;
+    }
 
     private static T? Find<T>(DependencyObject parent) where T : DependencyObject
     {
