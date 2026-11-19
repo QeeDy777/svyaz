@@ -40,9 +40,9 @@ internal class PresentationState : ObservableState
     public bool ShowDisconnect => IsBusy || IsProcessRunning;
     public string PrimaryActionLabel => IsBusy ? "Отменить и отключить" : IsProcessRunning ? "Отключить" : "Подключить";
     public string StopLabel => IsBusy ? "Отменить и отключить" : "Отключить";
-    public string Heading => IsBusy ? "Проверяем подключение" : IsVerified ? "Discord и YouTube\nотвечают" : HasError ? "Нужно ваше внимание" : IsProcessRunning ? "Процесс запущен" : "Всё начинается\nс одного нажатия.";
+    public string Heading => IsBusy ? "Проверяем подключение" : IsVerified ? "Discord и YouTube\nотвечают" : HasError ? "Нужно ваше внимание" : IsProcessRunning ? "Процесс запущен" : "Связь выключена";
     public string Badge => IsBusy ? "ВЫПОЛНЯЕТСЯ ОПЕРАЦИЯ" : IsVerified ? "ПРОВЕРКИ ПРОЙДЕНЫ" : IsProcessRunning ? "НЕ ПРОВЕРЕНО" : "НЕ ПОДКЛЮЧЕНО";
-    public string Status { get; set => Set(ref field, value); } = "Подберём стратегию для Discord и проверим HTTPS-соединение с YouTube.";
+    public string Status { get; set => Set(ref field, value); } = "При подключении проверим выбранные сервисы.";
     public ServiceCheck Api { get; private set => Set(ref field, value); } = Make("API", "Доступ к Discord", null, false);
     public ServiceCheck Gateway { get; private set => Set(ref field, value); } = Make("Gateway", "Соединение с Discord", null, false);
     public ServiceCheck Voice { get; private set => Set(ref field, value); } = Make("Голосовой сервер", "Ответ сервера канала", null, false);

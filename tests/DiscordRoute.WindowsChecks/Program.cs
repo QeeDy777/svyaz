@@ -41,6 +41,9 @@ internal static class WindowsChecks
                     {
                         var youtube = (ContentControl)window.FindName("YouTubeCheck");
                         var page = (ScrollViewer)((TabItem)tabs.Items[0]).Content;
+                        var tabHeader = (TabItem)tabs.Items[0];
+                        Check(tabHeader.TranslatePoint(new Point(0, 0), tabs).Y >= page.TranslatePoint(new Point(0, page.ActualHeight), tabs).Y - 1,
+                            "Navigation remains below the scrollable page");
                         Check(youtube.IsVisible && youtube.TranslatePoint(new Point(0, youtube.ActualHeight), page).Y <= page.ActualHeight,
                             "YouTube status is visible on the fixed portrait screen without scrolling");
                     }
@@ -59,7 +62,7 @@ internal static class WindowsChecks
                 model.HasError = false;
                 Check(model.DiscordSummary.Contains("выключен") && model.Telegram.Summary.Contains("выключен"), "Separate service status starts disconnected");
                 Check(model.ConnectionTime.Contains("не запущено") && model.LastCheck.Contains("пока нет"), "No invented connection time or successful check");
-                Check(model.AppUpdates.CurrentNotes.Contains("0.11.6") && model.AppUpdates.EarlierNotes.Contains("0.6.1"), "Release history available offline");
+                Check(model.AppUpdates.CurrentNotes.Contains("0.12.0") && model.AppUpdates.EarlierNotes.Contains("0.6.1"), "Release history available offline");
                 model.Report(new("fixture", "unused"), new(new(true, "sensitive-sentinel"), new(true, "sensitive-sentinel"), new(false, "sensitive-sentinel"), new(new(true, "sensitive-sentinel"), new(false, "sensitive-sentinel"))), "Failed");
                 model.ShowServiceResults(null);
                 var report = model.CreateDiagnosticReport();
