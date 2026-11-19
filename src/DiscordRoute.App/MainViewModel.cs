@@ -44,7 +44,7 @@ internal sealed class MainViewModel : PresentationState, IDisposable
         IsProcessRunning || Telegram.IsRunning ? "Связь включена" :
         ShowDisconnect ? "Ожидаем подключения" : "Связь выключена";
     public string SelectedServicesSummary => string.Join(" · ", new[] { Services.Discord ? "Discord" : null, Services.YouTube ? "YouTube" : null, Services.Telegram ? "Telegram" : null }.OfType<string>());
-    public string SelectionFeedback { get; private set => Set(ref field, value); } = "Отключите подключения перед изменением выбора.";
+    public string SelectionFeedback { get; private set => Set(ref field, value); } = "";
     public string ConnectionStatus => Services.Telegram && (!Services.UsesZapret || Telegram.HasFailure) ? Telegram.Status : Status;
     public string HelpActionLabel => Services.Telegram && Telegram.HasFailure ? Telegram.HelpActionLabel : help?.ActionLabel ?? "Повторить проверку";
     public UiCommand ServicesCommand { get; }

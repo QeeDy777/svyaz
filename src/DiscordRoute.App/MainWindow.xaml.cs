@@ -97,6 +97,8 @@ public partial class MainWindow : Window
     {
         if (!servicesEnabled || !model.NeedsReleaseNotes || !IsVisible) return;
         MainTabs.SelectedIndex = 2;
+        MainTabs.UpdateLayout();
+        CurrentNotesBlock.BringIntoView();
         model.MarkReleaseNotesSeen();
     }
     private void OnSessionEnding(object sender, SessionEndingCancelEventArgs e) { exiting = true; model.Dispose(); }

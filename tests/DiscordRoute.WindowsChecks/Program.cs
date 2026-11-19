@@ -32,6 +32,15 @@ internal static class WindowsChecks
                     window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
                     Check(((TabItem)tabs.Items[index]).ActualWidth > 40, name + " tab visible");
                     SaveScreenshot(window, name);
+                    if (index == 1)
+                    {
+                        var action = (Button)window.FindName("TelegramAction");
+                        var telegram = ((MainViewModel)window.DataContext).Telegram;
+                        var page = (ScrollViewer)((TabItem)tabs.Items[index]).Content;
+                        Check(action.Command == telegram.PrimaryCommand && System.Windows.Automation.AutomationProperties.GetName(action) == telegram.PrimaryLabel &&
+                            action.IsVisible && action.TranslatePoint(new Point(0, action.ActualHeight), page).Y <= page.ActualHeight,
+                            "The Telegram action is visible without scrolling and has the current command and accessible label");
+                    }
                     if (index == 2)
                     {
                         var reset = (Button)window.FindName("ResetZapretButton");

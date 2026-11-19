@@ -76,6 +76,7 @@ internal static class UpdateNoticeChecks
         journal.Text = string.Join('\n', Enumerable.Repeat("Строка журнала — проверка прокрутки", 200));
         window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         check(!hint.IsVisible, "The hint clears when journal entries appear");
+        capture("journal-entries");
         journal.ScrollToEnd();
         window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         check(journal.VerticalOffset > 0 && journal.SelectedText == "", "Journal remains scrollable and selectable with the shared gutter");
