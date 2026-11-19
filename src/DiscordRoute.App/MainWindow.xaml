@@ -258,7 +258,7 @@
                                 <ControlTemplate TargetType="Expander">
                                     <Border BorderBrush="{DynamicResource BrandLine}" BorderThickness="0,0,0,1">
                                         <StackPanel>
-                                            <ToggleButton x:Name="HeaderSite" Content="{TemplateBinding Header}" Cursor="Hand"
+                                            <ToggleButton x:Name="HeaderSite" Content="{TemplateBinding Header}" Cursor="Hand" HorizontalAlignment="Stretch"
                                                 FontWeight="SemiBold" FocusVisualStyle="{StaticResource BrandFocus}"
                                                 IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
                                                 <ToggleButton.Template><ControlTemplate TargetType="ToggleButton">

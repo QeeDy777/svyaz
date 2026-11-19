@@ -55,6 +55,8 @@ internal static class WindowsChecks
                         var sections = new[] { "StartupSettings", "ConnectionSettings", "GameSettings", "DiagnosticSettings", "MaintenanceSettings" };
                         Check(sections.All(id => !((Expander)window.FindName(id)).IsExpanded), "Settings sections start collapsed");
                         var startup = (Expander)window.FindName("StartupSettings");
+                        var header = (FrameworkElement)startup.Template.FindName("HeaderSite", startup);
+                        Check(header.ActualWidth >= startup.ActualWidth - 4, "The settings header accepts clicks across the row");
                         startup.IsExpanded = true;
                         ((Expander)window.FindName("ReleaseHistory")).IsExpanded = true;
                         window.UpdateLayout();

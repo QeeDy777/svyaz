@@ -41,7 +41,9 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
             return new("Telegram", CheckKind.Idle, "выключен");
         }
     }
-    public string ConnectionTime => startedAt is { } at && IsRunning ? "Прокси работает " + Math.Max(0, (int)(DateTimeOffset.UtcNow - at).TotalMinutes) + " мин" : "Прокси не запущен";
+    public string ConnectionTime => !IsRunning ? "Прокси не запущен" : startedAt is { } at
+        ? "Прокси работает " + Math.Max(0, (int)(DateTimeOffset.UtcNow - at).TotalMinutes) + " мин"
+        : "Прокси запущен";
     public int? LastError { get; private set; }
     public string Port { get; set; }
     public bool StartWithApp { get; set; }

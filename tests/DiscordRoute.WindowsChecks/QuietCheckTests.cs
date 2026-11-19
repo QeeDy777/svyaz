@@ -83,7 +83,7 @@ internal static class QuietCheckTests
             window.UpdateLayout();
             var open = (Button)window.FindName("TelegramOpenButton");
             var stop = (Button)window.FindName("TelegramAction");
-            check(open.IsVisible && open.IsEnabled && open.Command == telegram.OpenCommand &&
+            check(telegram.ConnectionTime != "Прокси не запущен" && open.IsVisible && open.IsEnabled && open.Command == telegram.OpenCommand &&
                 ((Button)window.FindName("TelegramCheckButton")).IsVisible && stop.Content.Equals("Остановить прокси"),
                 "Running proxy exposes the Telegram link and server check beside the unchanged stop action");
             capture("telegram-running");
