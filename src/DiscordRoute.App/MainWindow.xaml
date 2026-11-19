@@ -49,21 +49,32 @@
     </Window.Resources>
     <Grid>
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-        <Border BorderBrush="{DynamicResource BrandLine}" BorderThickness="0,0,0,1" Padding="16,10">
-            <Grid MinHeight="38">
+        <Border BorderBrush="{DynamicResource BrandLine}" BorderThickness="0,0,0,1" Padding="16,8">
+            <Grid MinHeight="34">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Width="30" Height="30" CornerRadius="8" Background="{DynamicResource BrandAccent}">
-                        <Path HorizontalAlignment="Center" VerticalAlignment="Center" Width="17" Height="18" Stretch="Uniform"
-                            Fill="{DynamicResource BrandOnAccent}" Data="M 3,6 l 3,0 -3,12 -3,0 Z M 9,0 l 3,0 -5,18 -3,0 Z M 12,9 l 3,0 -2,8 -3,0 Z"/>
-                    </Border>
+                    <Image Width="30" Height="30" Source="Assets/icon-source.png" RenderOptions.BitmapScalingMode="HighQuality"/>
                     <TextBlock Text="Связь" FontWeight="Bold" FontSize="19" Margin="8,0,7,0" VerticalAlignment="Center"/>
                     <TextBlock Text="{Binding AppUpdates.Version}" Style="{StaticResource SecondaryText}" FontSize="12" VerticalAlignment="Center"/>
                 </StackPanel>
-                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="10,0,0,0">
-                    <TextBlock Text="{Binding DiscordSummary}" TextAlignment="Right" Style="{StaticResource SecondaryText}" FontSize="11"/>
-                    <TextBlock Text="{Binding Telegram.Summary}" TextAlignment="Right" Style="{StaticResource SecondaryText}" FontSize="11"/>
-                </StackPanel>
+                <ItemsControl x:Name="HeaderServicesList" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center"
+                    ItemsSource="{Binding HeaderServices}" AutomationProperties.Name="Состояние сервисов">
+                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate><DataTemplate>
+                        <StackPanel Orientation="Horizontal" Margin="9,0,0,0" ToolTip="{Binding Summary}">
+                            <Ellipse x:Name="Dot" Width="6" Height="6" Margin="0,0,4,0" VerticalAlignment="Center"
+                                Stroke="{DynamicResource BrandMuted}" Fill="Transparent"/>
+                            <TextBlock x:Name="Caption" Text="{Binding Label}" FontSize="11" Foreground="{DynamicResource BrandMuted}"
+                                AutomationProperties.Name="{Binding Summary}"/>
+                        </StackPanel>
+                        <DataTemplate.Triggers>
+                            <DataTrigger Binding="{Binding Kind}" Value="Checking"><Setter TargetName="Dot" Property="Fill" Value="{DynamicResource BrandAccent}"/><Setter TargetName="Dot" Property="Stroke" Value="{DynamicResource BrandAccent}"/></DataTrigger>
+                            <DataTrigger Binding="{Binding Kind}" Value="Unconfirmed"><Setter TargetName="Dot" Property="Stroke" Value="{DynamicResource BrandWarning}"/></DataTrigger>
+                            <DataTrigger Binding="{Binding Kind}" Value="Passed"><Setter TargetName="Dot" Property="Fill" Value="{DynamicResource BrandGreen}"/><Setter TargetName="Dot" Property="Stroke" Value="{DynamicResource BrandGreen}"/></DataTrigger>
+                            <DataTrigger Binding="{Binding Kind}" Value="Failed"><Setter TargetName="Dot" Property="Fill" Value="{DynamicResource BrandError}"/><Setter TargetName="Dot" Property="Stroke" Value="{DynamicResource BrandError}"/><Setter TargetName="Caption" Property="Foreground" Value="{DynamicResource BrandError}"/></DataTrigger>
+                        </DataTemplate.Triggers>
+                    </DataTemplate></ItemsControl.ItemTemplate>
+                </ItemsControl>
             </Grid>
         </Border>
         <Border x:Name="UpdateNotice" Grid.Row="1" DataContext="{Binding AppUpdates}" Background="{DynamicResource BrandAccentTint}" CornerRadius="14" Padding="14" Margin="16,10,16,0" BorderThickness="1" BorderBrush="{DynamicResource BrandHeroLine}"
@@ -164,33 +175,54 @@
                             <StackPanel>
                                 <TextBlock Text="Прокси Telegram" FontWeight="SemiBold" FontSize="28" TextWrapping="Wrap"/>
                                 <TextBlock Text="{Binding Status}" Style="{StaticResource SecondaryText}" FontSize="13" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite"/>
-                                <Button x:Name="TelegramAction" Style="{StaticResource ConnectionButton}" Content="{Binding PrimaryLabel}"
-                                    Command="{Binding PrimaryCommand}" AutomationProperties.Name="{Binding PrimaryLabel}" Margin="0,14,0,0"/>
+                                <Button x:Name="TelegramAction" Content="{Binding PrimaryLabel}"
+                                    Command="{Binding PrimaryCommand}" AutomationProperties.Name="{Binding PrimaryLabel}" Margin="0,14,0,0">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource ConnectionButton}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                                                    <Setter Property="Background" Value="{DynamicResource BrandButton}"/>
+                                                    <Setter Property="BorderBrush" Value="{DynamicResource BrandLine}"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource BrandInk}"/>
+                                                </DataTrigger>
+                                                <MultiDataTrigger>
+                                                    <MultiDataTrigger.Conditions>
+                                                        <Condition Binding="{Binding IsRunning}" Value="True"/>
+                                                        <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                                    </MultiDataTrigger.Conditions>
+                                                    <Setter Property="Background" Value="{DynamicResource BrandPanel2}"/>
+                                                </MultiDataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
                                 <Button Style="{StaticResource QuietButton}" Content="{Binding HelpActionLabel}" Command="{Binding HelpCommand}"
                                     Visibility="{Binding HasFailure, Converter={StaticResource VisibleIfTrue}}" Margin="0,8,0,0"/>
                             </StackPanel>
                         </Border>
-                        <Grid Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                            <TextBlock Text="Адрес прокси" FontSize="21" FontWeight="SemiBold"/>
-                            <TextBlock Grid.Column="1" Text="{Binding Endpoint}" FontFamily="Cascadia Mono, Consolas" FontSize="13"
-                                VerticalAlignment="Center" Style="{StaticResource SecondaryText}" Margin="10,0,0,0"/>
-                        </Grid>
-                        <UniformGrid Columns="2" Margin="0,0,0,8">
-                            <Button Style="{StaticResource QuietButton}" Content="Открыть в Telegram" Command="{Binding OpenCommand}" Padding="6,9" FontSize="13" Margin="0,0,4,0"/>
-                            <Button Style="{StaticResource QuietButton}" Content="Скопировать ссылку" Command="{Binding CopyCommand}" Padding="6,9" FontSize="13" Margin="4,0,0,0"/>
-                        </UniformGrid>
-                        <TextBlock Text="Откройте ссылку и подтвердите подключение в Telegram." Style="{StaticResource SecondaryText}" FontSize="12" Margin="0,0,0,16"/>
+                        <StackPanel x:Name="TelegramClientActions" Visibility="{Binding IsRunning, Converter={StaticResource VisibleIfTrue}}" Margin="0,0,0,16">
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="Адрес прокси" FontSize="21" FontWeight="SemiBold"/>
+                                <TextBlock Grid.Column="1" Text="{Binding Endpoint}" FontFamily="Cascadia Mono, Consolas" FontSize="13"
+                                    VerticalAlignment="Center" Style="{StaticResource SecondaryText}" Margin="10,0,0,0"/>
+                            </Grid>
+                            <UniformGrid Columns="2">
+                                <Button x:Name="TelegramOpenButton" Content="Открыть в Telegram" Command="{Binding OpenCommand}" Padding="6,9" FontSize="13" Margin="0,0,4,0"/>
+                                <Button Style="{StaticResource QuietButton}" Content="Скопировать ссылку" Command="{Binding CopyCommand}" Padding="6,9" FontSize="13" Margin="4,0,0,0"/>
+                            </UniformGrid>
+                        </StackPanel>
                         <Grid Margin="0,0,0,4">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <TextBlock Text="Проверка" FontSize="21" FontWeight="SemiBold"/>
                             <TextBlock Grid.Column="1" Text="{Binding ConnectionTime}" Style="{StaticResource SecondaryText}"
-                                VerticalAlignment="Center" TextAlignment="Right" FontSize="12" Margin="10,0,0,0"/>
+                                Visibility="{Binding IsRunning, Converter={StaticResource VisibleIfTrue}}" VerticalAlignment="Center" TextAlignment="Right" FontSize="12" Margin="10,0,0,0"/>
                         </Grid>
                         <ContentControl Content="{Binding ServerCheck}"/>
                         <TextBlock Text="{Binding QualitySummary}" Visibility="{Binding HasQuality, Converter={StaticResource VisibleIfTrue}}" Style="{StaticResource SecondaryText}" FontSize="12" Margin="0,6,0,0" ToolTip="Отклик последних пяти проверок MTProto через прокси"/>
-                        <Button Style="{StaticResource QuietButton}" Content="Проверить сервер" Command="{Binding CheckCommand}" Margin="0,8,0,16"/>
-                        <Border Style="{StaticResource Card}" Padding="12,6" Margin="0,0,0,8">
+                        <Button x:Name="TelegramCheckButton" Visibility="{Binding IsRunning, Converter={StaticResource VisibleIfTrue}}"
+                            Style="{StaticResource QuietButton}" Content="Проверить сервер" Command="{Binding CheckCommand}" Margin="0,8,0,0"/>
+                        <Border Style="{StaticResource Card}" Padding="12,6" Margin="0,16,0,8">
                             <Expander x:Name="TelegramOptions" Header="Настройки Telegram" HorizontalContentAlignment="Stretch">
                                 <StackPanel Margin="0,16,0,0">
                                     <StackPanel IsEnabled="{Binding CanEdit}">
@@ -204,7 +236,6 @@
                                 </StackPanel>
                             </Expander>
                         </Border>
-                        <TextBlock Text="После остановки выключите прокси в Telegram или запустите его снова." Style="{StaticResource SecondaryText}" FontSize="12"/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -221,25 +252,53 @@
                                 <Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger>
                             </Style.Triggers>
                         </Style>
-                        <Style x:Key="SettingsDivider" TargetType="Border">
-                            <Setter Property="Height" Value="1"/>
-                            <Setter Property="Background" Value="{DynamicResource BrandLine}"/>
-                            <Setter Property="Margin" Value="0,18"/>
+                        <Style x:Key="SettingsSection" TargetType="Expander">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="Template"><Setter.Value>
+                                <ControlTemplate TargetType="Expander">
+                                    <Border BorderBrush="{DynamicResource BrandLine}" BorderThickness="0,0,0,1">
+                                        <StackPanel>
+                                            <ToggleButton x:Name="HeaderSite" Content="{TemplateBinding Header}" Cursor="Hand"
+                                                FontWeight="SemiBold" FocusVisualStyle="{StaticResource BrandFocus}"
+                                                IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                                                <ToggleButton.Template><ControlTemplate TargetType="ToggleButton">
+                                                    <Grid x:Name="HeaderArea" Background="Transparent" MinHeight="38" Margin="2,0">
+                                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="22"/></Grid.ColumnDefinitions>
+                                                        <ContentPresenter VerticalAlignment="Center" TextElement.Foreground="{DynamicResource BrandInk}" RecognizesAccessKey="True"/>
+                                                        <Path x:Name="Chevron" Grid.Column="1" Data="M 1,1 L 5,5 1,9" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                            Stroke="{DynamicResource BrandMuted}" StrokeThickness="1.5" StrokeLineJoin="Round"/>
+                                                    </Grid>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="HeaderArea" Property="Background" Value="{DynamicResource BrandPanel}"/></Trigger>
+                                                        <Trigger Property="IsChecked" Value="True"><Setter TargetName="Chevron" Property="Data" Value="M 1,1 L 5,5 9,1"/></Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate></ToggleButton.Template>
+                                            </ToggleButton>
+                                            <ContentPresenter x:Name="Body" Visibility="Collapsed" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" Margin="2,4,2,14"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsExpanded" Value="True"><Setter TargetName="Body" Property="Visibility" Value="Visible"/></Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value></Setter>
                         </Style>
                     </ScrollViewer.Resources>
                     <StackPanel>
                         <TextBlock Text="Настройки" Style="{StaticResource PageTitle}"/>
-                        <Border Style="{StaticResource Card}" Background="{DynamicResource BrandHero}" BorderBrush="{DynamicResource BrandHeroLine}" Padding="16" Margin="0,0,0,20">
+                        <Border Style="{StaticResource Card}" Background="{DynamicResource BrandHero}" BorderBrush="{DynamicResource BrandHeroLine}" Padding="16,12" Margin="0,0,0,8">
                             <StackPanel>
                                 <TextBlock Text="Сервисы подключения" Style="{StaticResource SectionTitle}" FontSize="21" Margin="0,0,0,4"/>
-                                <TextBlock Text="Выберите, что запускать кнопкой «Подключить»." Style="{StaticResource SettingsHint}" Margin="0,0,0,8"/>
+                                <TextBlock Text="Что запускать кнопкой «Подключить»" Style="{StaticResource SettingsHint}" Margin="0,0,0,4"/>
                                 <StackPanel IsEnabled="{Binding CanConfigureServices}">
-                                    <CheckBox Content="Discord" IsChecked="{Binding UseDiscord}" MinHeight="34"/>
-                                    <CheckBox Content="YouTube" IsChecked="{Binding UseYouTube}" MinHeight="34"/>
-                                    <CheckBox Content="Telegram" IsChecked="{Binding UseTelegram}" MinHeight="34"/>
-                                    <Border Style="{StaticResource SettingsDivider}" Margin="0,6"/>
-                                    <CheckBox Content="Сообщать о длительном сбое" IsChecked="{Binding QuietNotifications}" MinHeight="34"/>
-                                    <Button Content="Сохранить выбор" Command="{Binding ServicesCommand}" Margin="0,10,0,0"/>
+                                    <CheckBox Content="Discord" IsChecked="{Binding UseDiscord}" MinHeight="30"/>
+                                    <Border Height="1" Background="{DynamicResource BrandLine}"/>
+                                    <CheckBox Content="YouTube" IsChecked="{Binding UseYouTube}" MinHeight="30"/>
+                                    <Border Height="1" Background="{DynamicResource BrandLine}"/>
+                                    <CheckBox Content="Telegram" IsChecked="{Binding UseTelegram}" MinHeight="30"/>
+                                    <Border Height="1" Background="{DynamicResource BrandLine}"/>
+                                    <CheckBox Content="Сообщать о длительном сбое" IsChecked="{Binding QuietNotifications}" MinHeight="30"/>
+                                    <Button Content="Сохранить выбор" Command="{Binding ServicesCommand}" Margin="0,6,0,0"/>
                                 </StackPanel>
                                 <TextBlock Text="Отключите связь, чтобы изменить выбор.">
                                     <TextBlock.Style>
@@ -256,84 +315,87 @@
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Text="Запуск и обновления" Style="{StaticResource SectionTitle}" FontSize="21"/>
-                        <CheckBox Content="Подключать при входе в Windows" IsChecked="{Binding AutostartEnabled, Mode=OneWay}" Command="{Binding AutostartCommand}"/>
-                        <TextBlock Text="Через 15 секунд после входа «Связь» запустится в трее." Style="{StaticResource SettingsHint}" Margin="0,4,0,12"/>
-                        <CheckBox Content="Обновлять «Связь» и компоненты" IsChecked="{Binding AutoUpdateEnabled}" Command="{Binding AutoUpdateCommand}"/>
-                        <TextBlock Text="Проверка каждые 6 часов. Загруженная версия установится при следующем запуске." Style="{StaticResource SettingsHint}" Margin="0,4,0,14"/>
-                        <StackPanel DataContext="{Binding AppUpdates}">
-                            <TextBlock Text="{Binding Status}" Style="{StaticResource SettingsHint}" AutomationProperties.LiveSetting="Polite" Margin="0,0,0,8"/>
-                            <Button Style="{StaticResource QuietButton}" Content="Проверить новую версию" Command="{Binding CheckCommand}"/>
-                            <Button Content="Обновить и перезапустить" Command="{Binding RestartCommand}" Margin="0,8,0,0"/>
-                            <TextBlock Text="Перезапуск ненадолго прервёт подключение. Предыдущая версия и настройки сохранятся." Style="{StaticResource SettingsHint}" Margin="0,8,0,14"/>
-                            <Expander x:Name="ReleaseHistory" Header="Что нового" IsExpanded="{Binding ShowWhatsNew}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Top">
-                                <StackPanel Margin="0,12,0,0">
-                                    <TextBlock x:Name="CurrentNotesBlock" Text="{Binding CurrentNotes}" TextWrapping="Wrap" Margin="0,0,0,12"/>
-                                    <Expander Header="Предыдущие выпуски" HorizontalContentAlignment="Stretch">
-                                        <TextBlock Text="{Binding EarlierNotes}" Style="{StaticResource SettingsHint}" Margin="0,12,0,0"/>
+                        <Expander x:Name="StartupSettings" Header="Запуск и обновления" Style="{StaticResource SettingsSection}">
+                            <StackPanel>
+                                <CheckBox Content="Подключать при входе в Windows" IsChecked="{Binding AutostartEnabled, Mode=OneWay}" Command="{Binding AutostartCommand}"/>
+                                <TextBlock Text="Через 15 секунд после входа «Связь» запустится в трее." Style="{StaticResource SettingsHint}" Margin="0,4,0,12"/>
+                                <CheckBox Content="Обновлять «Связь» и компоненты" IsChecked="{Binding AutoUpdateEnabled}" Command="{Binding AutoUpdateCommand}"/>
+                                <TextBlock Text="Проверка каждые 6 часов. Загруженная версия установится при следующем запуске." Style="{StaticResource SettingsHint}" Margin="0,4,0,14"/>
+                                <StackPanel DataContext="{Binding AppUpdates}">
+                                    <TextBlock Text="{Binding Status}" Style="{StaticResource SettingsHint}" AutomationProperties.LiveSetting="Polite" Margin="0,0,0,8"/>
+                                    <Button Style="{StaticResource QuietButton}" Content="Проверить новую версию" Command="{Binding CheckCommand}"/>
+                                    <Button Content="Обновить и перезапустить" Command="{Binding RestartCommand}" Margin="0,8,0,0"/>
+                                    <TextBlock Text="Перезапуск ненадолго прервёт подключение. Предыдущая версия и настройки сохранятся." Style="{StaticResource SettingsHint}" Margin="0,8,0,14"/>
+                                    <Expander x:Name="ReleaseHistory" Header="Что нового" IsExpanded="{Binding ShowWhatsNew}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Top">
+                                        <StackPanel Margin="0,12,0,0">
+                                            <TextBlock x:Name="CurrentNotesBlock" Text="{Binding CurrentNotes}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                                            <Expander Header="Предыдущие выпуски" HorizontalContentAlignment="Stretch">
+                                                <TextBlock Text="{Binding EarlierNotes}" Style="{StaticResource SettingsHint}" Margin="0,12,0,0"/>
+                                            </Expander>
+                                        </StackPanel>
+                                    </Expander>
+                                    <Expander Header="Откат версии" HorizontalContentAlignment="Stretch" Margin="0,6,0,0">
+                                        <StackPanel Margin="0,12,0,0">
+                                            <TextBlock Text="{Binding InstalledHistory}" Style="{StaticResource SettingsHint}" Margin="0,0,0,8"/>
+                                            <TextBlock Text="Откат перезапустит приложение и выключит автообновление. Настройки сохранятся." Style="{StaticResource SettingsHint}" Margin="0,0,0,10"/>
+                                            <Button Content="{Binding RollbackLabel}" Command="{Binding RollbackCommand}" Style="{StaticResource QuietButton}"/>
+                                        </StackPanel>
                                     </Expander>
                                 </StackPanel>
-                            </Expander>
-                            <Expander Header="Откат версии" HorizontalContentAlignment="Stretch" Margin="0,6,0,0">
-                                <StackPanel Margin="0,12,0,0">
-                                    <TextBlock Text="{Binding InstalledHistory}" Style="{StaticResource SettingsHint}" Margin="0,0,0,8"/>
-                                    <TextBlock Text="Откат перезапустит приложение и выключит автообновление. Настройки сохранятся." Style="{StaticResource SettingsHint}" Margin="0,0,0,10"/>
-                                    <Button Content="{Binding RollbackLabel}" Command="{Binding RollbackCommand}" Style="{StaticResource QuietButton}"/>
-                                </StackPanel>
-                            </Expander>
-                        </StackPanel>
-                        <Border Style="{StaticResource SettingsDivider}"/>
-
-                        <StackPanel IsEnabled="{Binding CanEdit}">
-                            <TextBlock Text="Параметры подключения" Style="{StaticResource SectionTitle}" FontSize="21"/>
-                            <Label Content="Стратегия" Target="{Binding ElementName=StrategyPicker}" Padding="0" Margin="0,0,0,6"/>
-                            <ComboBox x:Name="StrategyPicker" ItemsSource="{Binding Strategies}" SelectedItem="{Binding SelectedStrategy}" MinHeight="38" AutomationProperties.Name="Стратегия обхода"/>
-                            <TextBlock Text="Проверка проходит при подключении. После сна и смены сети рабочий альт сохраняется." Style="{StaticResource SettingsHint}" Margin="0,6,0,0"/>
-                            <TextBlock Text="При автоподборе сначала проверяется сохранённый для этой сети альт." Style="{StaticResource SettingsHint}" Margin="0,6,0,0"/>
-                            <TextBlock Text="{Binding NetworkSummary}" Style="{StaticResource SettingsHint}" Margin="0,6,0,14"/>
-                            <Label Content="Голосовой сервер Discord · необязательно" Target="{Binding ElementName=VoiceInput}" Padding="0" Margin="0,0,0,6"/>
-                            <TextBox x:Name="VoiceInput" Text="{Binding VoiceAddress, UpdateSourceTrigger=PropertyChanged}" MinHeight="38" AutomationProperties.Name="Адрес голосового сервера"/>
-                            <TextBlock Text="Оставьте поле пустым для поиска в журнале Discord. Если адрес ещё не появился, войдите в голосовой канал. Формат адреса — имя.discord.media:порт." Style="{StaticResource SettingsHint}" Margin="0,6,0,0"/>
-                        </StackPanel>
-                        <Border Style="{StaticResource SettingsDivider}"/>
-
-                        <StackPanel IsEnabled="{Binding CanEdit}">
-                            <TextBlock Text="Игры · Game Filter" Style="{StaticResource SectionTitle}" FontSize="21"/>
-                            <Label Content="Режим" Target="{Binding ElementName=GameFilterPicker}" Padding="0" Margin="0,0,0,6"/>
-                            <ComboBox x:Name="GameFilterPicker" ItemsSource="{Binding GameFilterModes}" SelectedIndex="{Binding GameFilterModeIndex}" MinHeight="38" AutomationProperties.Name="Режим Game Filter"/>
-                            <TextBlock Text="{Binding GameFilterSummary}" Style="{StaticResource SettingsHint}" Margin="0,6,0,12"/>
-                            <Expander Header="Диапазоны портов" HorizontalContentAlignment="Stretch">
-                                <StackPanel Margin="0,12,0,0">
-                                    <Label Content="TCP" Target="{Binding ElementName=GameTcpInput}" Padding="0" Margin="0,0,0,6"/>
-                                    <TextBox x:Name="GameTcpInput" Text="{Binding GameFilterTcpPorts, UpdateSourceTrigger=PropertyChanged}" MaxLength="2048" MinHeight="38" AutomationProperties.Name="TCP порты Game Filter"/>
-                                    <Label Content="UDP" Target="{Binding ElementName=GameUdpInput}" Padding="0" Margin="0,12,0,6"/>
-                                    <TextBox x:Name="GameUdpInput" Text="{Binding GameFilterUdpPorts, UpdateSourceTrigger=PropertyChanged}" MaxLength="2048" MinHeight="38" AutomationProperties.Name="UDP порты Game Filter"/>
-                                    <TextBlock Text="По умолчанию 1024–65535. Перечислите порты и диапазоны через запятую." Style="{StaticResource SettingsHint}" Margin="0,8,0,0"/>
-                                </StackPanel>
-                            </Expander>
-                            <TextBlock Text="Фильтр обрабатывает выбранные порты для сетей из IPSet Flowseal. Проверьте подключение в самой игре." Style="{StaticResource SettingsHint}" Margin="0,10,0,0"/>
-                            <TextBlock Text="{Binding GameFilterHint}" Style="{StaticResource SettingsHint}" Margin="0,6,0,10"/>
-                            <Button Style="{StaticResource QuietButton}" Content="Сохранить Game Filter" Command="{Binding GameFilterCommand}"/>
-                            <TextBlock Text="{Binding GameFilterFeedback}" Style="{StaticResource SettingsFeedback}"/>
-                        </StackPanel>
-                        <Border Style="{StaticResource SettingsDivider}"/>
-
-                        <TextBlock Text="Диагностика" Style="{StaticResource SectionTitle}" FontSize="21"/>
-                        <TextBlock Text="{Binding DiagnosticFeedback}" Style="{StaticResource SettingsHint}" Margin="0,0,0,10" AutomationProperties.LiveSetting="Polite"/>
-                        <Button Content="Сохранить отчёт" Command="{Binding ExportDiagnosticsCommand}" Style="{StaticResource QuietButton}"/>
-                        <Border Style="{StaticResource SettingsDivider}"/>
-
-                        <TextBlock Text="Пакет zapret" Style="{StaticResource SectionTitle}" FontSize="21"/>
-                        <TextBlock Text="{Binding PackageVersion}" Style="{StaticResource SettingsHint}" Margin="0,0,0,10"/>
-                        <Button Style="{StaticResource QuietButton}" Content="Обновить альты" Command="{Binding UpdateCommand}"/>
-                        <Border Style="{StaticResource Card}" Margin="0,14,0,0">
-                            <StackPanel>
-                                <TextBlock Text="Полный сброс zapret" Style="{StaticResource SectionTitle}" Margin="0,0,0,6"/>
-                                <TextBlock Text="Сброс выгрузит WinDivert и удалит его службу, пакеты и списки zapret. Затем «Связь» скачает свежую копию и начнёт подбор." Style="{StaticResource SettingsHint}" Margin="0,0,0,10"/>
-                                <Button x:Name="ResetZapretButton" Style="{StaticResource QuietButton}" Foreground="{DynamicResource BrandError}" Content="Сбросить кэш zapret" Command="{Binding ResetZapretCommand}"/>
-                                <TextBlock Text="{Binding ResetFeedback}" Style="{StaticResource SettingsFeedback}"/>
                             </StackPanel>
-                        </Border>
+                        </Expander>
+                        <Expander x:Name="ConnectionSettings" Header="Параметры подключения" Style="{StaticResource SettingsSection}">
+                            <StackPanel IsEnabled="{Binding CanEdit}">
+                                <Label Content="Стратегия" Target="{Binding ElementName=StrategyPicker}" Padding="0" Margin="0,0,0,6"/>
+                                <ComboBox x:Name="StrategyPicker" ItemsSource="{Binding Strategies}" SelectedItem="{Binding SelectedStrategy}" MinHeight="38" AutomationProperties.Name="Стратегия обхода"/>
+                                <TextBlock Text="Проверка проходит при подключении. После сна и смены сети рабочий альт сохраняется." Style="{StaticResource SettingsHint}" Margin="0,6,0,0"/>
+                                <TextBlock Text="При автоподборе сначала проверяется сохранённый для этой сети альт." Style="{StaticResource SettingsHint}" Margin="0,6,0,0"/>
+                                <TextBlock Text="{Binding NetworkSummary}" Style="{StaticResource SettingsHint}" Margin="0,6,0,14"/>
+                                <Label Content="Голосовой сервер Discord · необязательно" Target="{Binding ElementName=VoiceInput}" Padding="0" Margin="0,0,0,6"/>
+                                <TextBox x:Name="VoiceInput" Text="{Binding VoiceAddress, UpdateSourceTrigger=PropertyChanged}" MinHeight="38" AutomationProperties.Name="Адрес голосового сервера"/>
+                                <TextBlock Text="Оставьте поле пустым для поиска в журнале Discord. Если адрес ещё не появился, войдите в голосовой канал. Формат адреса — имя.discord.media:порт." Style="{StaticResource SettingsHint}" Margin="0,6,0,0"/>
+                            </StackPanel>
+                        </Expander>
+                        <Expander x:Name="GameSettings" Header="Игры" Style="{StaticResource SettingsSection}">
+                            <StackPanel IsEnabled="{Binding CanEdit}">
+                                <Label Content="Режим" Target="{Binding ElementName=GameFilterPicker}" Padding="0" Margin="0,0,0,6"/>
+                                <ComboBox x:Name="GameFilterPicker" ItemsSource="{Binding GameFilterModes}" SelectedIndex="{Binding GameFilterModeIndex}" MinHeight="38" AutomationProperties.Name="Режим Game Filter"/>
+                                <TextBlock Text="{Binding GameFilterSummary}" Style="{StaticResource SettingsHint}" Margin="0,6,0,12"/>
+                                <Expander Header="Диапазоны портов" HorizontalContentAlignment="Stretch">
+                                    <StackPanel Margin="0,12,0,0">
+                                        <Label Content="TCP" Target="{Binding ElementName=GameTcpInput}" Padding="0" Margin="0,0,0,6"/>
+                                        <TextBox x:Name="GameTcpInput" Text="{Binding GameFilterTcpPorts, UpdateSourceTrigger=PropertyChanged}" MaxLength="2048" MinHeight="38" AutomationProperties.Name="TCP порты Game Filter"/>
+                                        <Label Content="UDP" Target="{Binding ElementName=GameUdpInput}" Padding="0" Margin="0,12,0,6"/>
+                                        <TextBox x:Name="GameUdpInput" Text="{Binding GameFilterUdpPorts, UpdateSourceTrigger=PropertyChanged}" MaxLength="2048" MinHeight="38" AutomationProperties.Name="UDP порты Game Filter"/>
+                                        <TextBlock Text="По умолчанию 1024–65535. Перечислите порты и диапазоны через запятую." Style="{StaticResource SettingsHint}" Margin="0,8,0,0"/>
+                                    </StackPanel>
+                                </Expander>
+                                <TextBlock Text="Фильтр обрабатывает выбранные порты для сетей из IPSet Flowseal. Проверьте подключение в самой игре." Style="{StaticResource SettingsHint}" Margin="0,10,0,0"/>
+                                <TextBlock Text="{Binding GameFilterHint}" Style="{StaticResource SettingsHint}" Margin="0,6,0,10"/>
+                                <Button Style="{StaticResource QuietButton}" Content="Сохранить Game Filter" Command="{Binding GameFilterCommand}"/>
+                                <TextBlock Text="{Binding GameFilterFeedback}" Style="{StaticResource SettingsFeedback}"/>
+                            </StackPanel>
+                        </Expander>
+                        <Expander x:Name="DiagnosticSettings" Header="Диагностика" Style="{StaticResource SettingsSection}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding DiagnosticFeedback}" Style="{StaticResource SettingsHint}" Margin="0,0,0,10" AutomationProperties.LiveSetting="Polite"/>
+                                <Button Content="Сохранить отчёт" Command="{Binding ExportDiagnosticsCommand}" Style="{StaticResource QuietButton}"/>
+                            </StackPanel>
+                        </Expander>
+                        <Expander x:Name="MaintenanceSettings" Header="Обслуживание zapret" Style="{StaticResource SettingsSection}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding PackageVersion}" Style="{StaticResource SettingsHint}" Margin="0,0,0,10"/>
+                                <Button Style="{StaticResource QuietButton}" Content="Обновить альты" Command="{Binding UpdateCommand}"/>
+                                <Border Style="{StaticResource Card}" Margin="0,14,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Полный сброс zapret" Style="{StaticResource SectionTitle}" Margin="0,0,0,6"/>
+                                        <TextBlock Text="Сброс выгрузит WinDivert и удалит его службу, пакеты и списки zapret. Затем «Связь» скачает свежую копию и начнёт подбор." Style="{StaticResource SettingsHint}" Margin="0,0,0,10"/>
+                                        <Button x:Name="ResetZapretButton" Style="{StaticResource QuietButton}" Foreground="{DynamicResource BrandError}" Content="Сбросить кэш zapret" Command="{Binding ResetZapretCommand}"/>
+                                        <TextBlock Text="{Binding ResetFeedback}" Style="{StaticResource SettingsFeedback}"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </Expander>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

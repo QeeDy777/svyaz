@@ -67,7 +67,7 @@
                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                         <Path Data="M 12,2 L 12,10 M 6,5 A 8,8 0 1 0 18,5"
                             Width="16" Height="17" Stretch="Uniform" VerticalAlignment="Center"
-                            Stroke="{DynamicResource BrandOnAccent}" StrokeThickness="1.8"
+                            Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}" StrokeThickness="1.8"
                             StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
                         <TextBlock Grid.Column="1" Text="{Binding}" TextWrapping="Wrap" TextAlignment="Center"
                             Margin="9,0,0,0" VerticalAlignment="Center"/>
@@ -112,13 +112,16 @@
             <Setter Property="FocusVisualStyle" Value="{StaticResource BrandFocus}"/>
             <Setter Property="Template"><Setter.Value>
                 <ControlTemplate TargetType="TabItem">
-                    <Border x:Name="Surface" CornerRadius="10" BorderThickness="1" BorderBrush="Transparent"
-                            Padding="{TemplateBinding Padding}" Background="Transparent">
-                        <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Border>
+                    <Grid Background="Transparent">
+                        <Border x:Name="Surface" CornerRadius="8" Padding="{TemplateBinding Padding}" Background="Transparent">
+                            <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <Border x:Name="SelectedLine" Width="29" Height="2" CornerRadius="1" VerticalAlignment="Top"
+                                Background="{DynamicResource BrandAccent}" Visibility="Hidden" IsHitTestVisible="False"/>
+                    </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource BrandPanel2}"/></Trigger>
-                        <Trigger Property="IsSelected" Value="True"><Setter Property="Foreground" Value="{DynamicResource BrandAccent}"/><Setter TargetName="Surface" Property="Background" Value="{DynamicResource BrandAccentTint}"/><Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource BrandHeroLine}"/></Trigger>
+                        <Trigger Property="IsSelected" Value="True"><Setter Property="Foreground" Value="{DynamicResource BrandAccent}"/><Setter TargetName="SelectedLine" Property="Visibility" Value="Visible"/></Trigger>
                         <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.55"/></Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>

@@ -71,7 +71,17 @@ internal static class QuietCheckTests
         Finish(model.RunAsync(_ => throw new InvalidOperationException("quiet-check failure"), background: true));
         check(model.HasError && model.Heading.Contains("внимание"), "Background Discord errors remain visible");
         model.StopCommand.Execute(null);
-        Finish(ConnectionOnlyChecks.RunAsync(model, check));
+        Finish(ConnectionOnlyChecks.RunAsync(model, check, () =>
+        {
+            tabs.SelectedIndex = 1;
+            window.UpdateLayout();
+            var open = (Button)window.FindName("TelegramOpenButton");
+            var stop = (Button)window.FindName("TelegramAction");
+            check(open.IsVisible && open.IsEnabled && open.Command == telegram.OpenCommand &&
+                ((Button)window.FindName("TelegramCheckButton")).IsVisible && stop.Content.Equals("Остановить прокси"),
+                "Running proxy exposes the Telegram link and server check beside the unchanged stop action");
+            capture("telegram-running");
+        }));
     }
 
     private static void CheckPrimaryAction(MainWindow window, MainViewModel model, Action<bool, string> check)

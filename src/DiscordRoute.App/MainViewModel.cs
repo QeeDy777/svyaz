@@ -76,7 +76,37 @@ internal sealed class MainViewModel : PresentationState, IDisposable
     public bool ShowRepair => IsProcessRunning || HasError || Services.Telegram && Telegram.HasFailure;
     public bool HasLastCheck => lastSuccessfulCheck != null;
     public string CurrentStrategy => IsProcessRunning ? runner.StrategyName ?? "Подбор…" : "—";
-    public string DiscordSummary => !Services.Discord ? "Discord · не выбран" : IsBusy && !backgroundCheck ? "Discord · проверка…" : IsVerified ? "Discord · сервер отвечает" : IsProcessRunning ? "Discord · не проверен" : "Discord · выключен";
+    public string DiscordSummary => Services.Discord ? RouteIndicator.Summary : "Discord · не выбран";
+    private ServiceIndicator RouteIndicator
+    {
+        get
+        {
+            var name = Services.Discord || !Services.YouTube ? "Discord" : "YouTube";
+            if (HasError)
+            {
+                if (Services.Discord && (Api.Kind == CheckKind.Failed || Gateway.Kind == CheckKind.Failed || Voice.Kind == CheckKind.Failed))
+                    return new("Discord", CheckKind.Failed, Status);
+                if (Services.YouTube && YouTube.Kind == CheckKind.Failed) return new("YouTube", CheckKind.Failed, Status);
+                return new("Связь", CheckKind.Failed, Status);
+            }
+            if (!Services.UsesZapret) return new(name, CheckKind.Idle, "не выбран");
+            if (IsBusy && !backgroundCheck) return new(name, CheckKind.Checking, "выполняется операция");
+            if (IsProcessRunning) return IsVerified ? new(name, CheckKind.Passed, "сервер отвечает") : new(name, CheckKind.Unconfirmed, "запущен, ответ сервера не подтверждён");
+            if (recovery.Wanted) return new(name, CheckKind.Checking, "ожидание подключения");
+            return new(name, CheckKind.Idle, "выключен");
+        }
+    }
+    public IReadOnlyList<ServiceIndicator> HeaderServices
+    {
+        get
+        {
+            var route = RouteIndicator;
+            var telegram = Telegram.Indicator;
+            return route.Kind == CheckKind.Idle && telegram.Kind == CheckKind.Idle
+                ? [new("Отключено", CheckKind.Idle, "нет активных подключений")]
+                : [route, telegram];
+        }
+    }
     public string ConnectionTime => runner.StartedAt is { } at && IsProcessRunning ? "Подключено " + Math.Max(0, (int)(DateTimeOffset.UtcNow - at).TotalMinutes) + " мин" : "Подключение не запущено";
     public string LastCheck => lastSuccessfulCheck is { } at ? "Успешная проверка · " + at.ToLocalTime().ToString("dd.MM HH:mm") : "Успешных проверок пока нет";
     public string NetworkSummary => networkId == null ? "Сеть не определена · обычный подбор" : preferences.NetworkStrategies.TryGetValue(networkId, out var strategy) ? "Для этой сети сохранён " + strategy : "Запомним альт после успешной проверки";

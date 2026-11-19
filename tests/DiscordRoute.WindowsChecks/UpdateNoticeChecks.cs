@@ -46,7 +46,12 @@ internal static class UpdateNoticeChecks
         check(!updates.IsNoticeVisible && !updates.RestartCommand.CanExecute(null), "Installed or older version is never offered for restart");
 
         window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        ((Expander)window.FindName("StartupSettings")).IsExpanded = true;
+        ((Expander)window.FindName("MaintenanceSettings")).IsExpanded = true;
+        window.UpdateLayout();
         var scroll = (ScrollViewer)((TabItem)tabs.Items[2]).Content;
+        scroll.ScrollToTop();
+        window.UpdateLayout();
         var presenter = (ScrollContentPresenter)scroll.Template.FindName("PART_ScrollContentPresenter", scroll);
         var bar = (ScrollBar)scroll.Template.FindName("PART_VerticalScrollBar", scroll);
         var edge = presenter.TranslatePoint(new Point(presenter.ActualWidth, 0), scroll).X;

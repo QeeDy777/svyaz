@@ -32,11 +32,18 @@ internal static class WindowsChecks
                     window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
                     Check(((TabItem)tabs.Items[index]).ActualWidth > 40, name + " tab visible");
                     SaveScreenshot(window, name);
+                    foreach (TabItem item in tabs.Items)
+                    {
+                        var line = (Border)item.Template.FindName("SelectedLine", item);
+                        Check(line.IsVisible == item.IsSelected, "The current tab has the only visible navigation underline");
+                    }
                     if (index == 1)
                     {
                         var action = (Button)window.FindName("TelegramAction");
                         var telegram = ((MainViewModel)window.DataContext).Telegram;
                         var page = (ScrollViewer)((TabItem)tabs.Items[index]).Content;
+                        Check(!((FrameworkElement)window.FindName("TelegramClientActions")).IsVisible &&
+                            !((Button)window.FindName("TelegramCheckButton")).IsVisible, "Stopped proxy hides unavailable client actions");
                         Check(action.Command == telegram.PrimaryCommand && System.Windows.Automation.AutomationProperties.GetName(action) == telegram.PrimaryLabel &&
                             action.IsVisible && action.TranslatePoint(new Point(0, action.ActualHeight), page).Y <= page.ActualHeight,
                             "The Telegram action is visible without scrolling and has the current command and accessible label");
@@ -45,6 +52,15 @@ internal static class WindowsChecks
                     {
                         var reset = (Button)window.FindName("ResetZapretButton");
                         Check(reset.Command == ((MainViewModel)window.DataContext).ResetZapretCommand, "Settings expose the zapret cache reset command");
+                        var sections = new[] { "StartupSettings", "ConnectionSettings", "GameSettings", "DiagnosticSettings", "MaintenanceSettings" };
+                        Check(sections.All(id => !((Expander)window.FindName(id)).IsExpanded), "Settings sections start collapsed");
+                        var startup = (Expander)window.FindName("StartupSettings");
+                        startup.IsExpanded = true;
+                        ((Expander)window.FindName("ReleaseHistory")).IsExpanded = true;
+                        window.UpdateLayout();
+                        ((TextBlock)window.FindName("CurrentNotesBlock")).BringIntoView();
+                        SaveScreenshot(window, "release-notes");
+                        startup.IsExpanded = false;
                     }
                     if (index == 0)
                     {
@@ -69,7 +85,8 @@ internal static class WindowsChecks
                 model.HasError = true;
                 Check(model.ShowRepair, "Repair action appears when connection needs attention");
                 model.HasError = false;
-                Check(model.DiscordSummary.Contains("выключен") && model.Telegram.Summary.Contains("выключен"), "Separate service status starts disconnected");
+                Check(model.HeaderServices.Single().Label == "Отключено" && model.DiscordSummary.Contains("выключен") &&
+                    model.Telegram.Summary.Contains("выключен"), "Idle header collapses the two stopped services into one label");
                 Check(model.ConnectionTime.Contains("не запущено") && model.LastCheck.Contains("пока нет"), "No invented connection time or successful check");
                 Check(model.AppUpdates.CurrentNotes.StartsWith(AppUpdater.RunningVersion + " ·", StringComparison.Ordinal) &&
                     model.AppUpdates.EarlierNotes.Contains("0.12.0") && model.AppUpdates.EarlierNotes.Contains("0.6.1"), "Release history available offline");
@@ -124,7 +141,7 @@ internal static class WindowsChecks
         settle.Start();
         System.Windows.Threading.Dispatcher.PushFrame(frame);
         window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
-        if (name == "settings")
+        if (name == "release-notes")
         {
             var notes = (TextBlock)window.FindName("CurrentNotesBlock");
             var history = (Expander)window.FindName("ReleaseHistory");

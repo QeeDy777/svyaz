@@ -7,7 +7,7 @@ using DiscordRoute.Core;
 
 internal static class ConnectionOnlyChecks
 {
-    public static async Task RunAsync(MainViewModel model, Action<bool, string> check)
+    public static async Task RunAsync(MainViewModel model, Action<bool, string> check, Action inspectRunningProxy)
     {
         var state = Field<AppState>(model, "state");
         var autoUpdate = state.AutoUpdate;
@@ -58,6 +58,7 @@ internal static class ConnectionOnlyChecks
             operations = 0;
             telegram.Recovery.Enable();
             telegram.ApplyProbeResult(false);
+            inspectRunningProxy();
             check(telegramRunner.IsRunning && !telegram.HasFailure && !telegram.ServerVerified &&
                 telegram.ServerCheck.Kind == CheckKind.Unconfirmed && !telegram.Recovery.Pending,
                 "Unanswered diagnostic probe leaves a running Telegram proxy available without an outage alert");

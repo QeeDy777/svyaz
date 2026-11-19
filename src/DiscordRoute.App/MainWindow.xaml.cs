@@ -55,7 +55,15 @@ public partial class MainWindow : Window
         };
         tray.DoubleClick += (_, _) => ShowWindow();
         model.Notify += (title, text) => { if (!IsVisible) tray.ShowBalloonTip(5000, title, text, Forms.ToolTipIcon.Info); };
-        model.SettingsRequested += () => { ShowWindow(); MainTabs.SelectedIndex = 2; VoiceInput.BringIntoView(); VoiceInput.Focus(); };
+        model.SettingsRequested += () =>
+        {
+            ShowWindow();
+            MainTabs.SelectedIndex = 2;
+            ConnectionSettings.IsExpanded = true;
+            MainTabs.UpdateLayout();
+            VoiceInput.BringIntoView();
+            VoiceInput.Focus();
+        };
         model.Telegram.SettingsRequested += () => { ShowWindow(); MainTabs.SelectedIndex = 1; TelegramOptions.IsExpanded = true; TelegramOptions.BringIntoView(); };
         model.ExitReady += () => { exiting = true; Close(); };
         void UpdateTray() => tray.Text = "Связь · Discord: " + (!model.Services.Discord ? "выкл" : model.IsVerified ? "вкл" : model.IsProcessRunning ? "?" : "выкл") +
@@ -97,6 +105,7 @@ public partial class MainWindow : Window
     {
         if (!servicesEnabled || !model.NeedsReleaseNotes || !IsVisible) return;
         MainTabs.SelectedIndex = 2;
+        StartupSettings.IsExpanded = true;
         MainTabs.UpdateLayout();
         CurrentNotesBlock.BringIntoView();
         model.MarkReleaseNotesSeen();

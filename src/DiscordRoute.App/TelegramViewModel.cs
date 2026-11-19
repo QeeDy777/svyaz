@@ -29,7 +29,18 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
     public UiCommand CheckCommand { get; }
     public UiCommand HelpCommand { get; }
 
-    public string Summary => ShowProgress ? "Telegram · операция…" : ServerVerified ? "Telegram · сервер отвечает" : IsRunning ? "Telegram · не проверен" : "Telegram · выключен";
+    public string Summary => Indicator.Summary;
+    internal ServiceIndicator Indicator
+    {
+        get
+        {
+            if (ShowProgress) return new("Telegram", CheckKind.Checking, "операция…");
+            if (HasFailure) return new("Telegram", CheckKind.Failed, Status);
+            if (IsRunning) return ServerVerified ? new("Telegram", CheckKind.Passed, "сервер отвечает") : new("Telegram", CheckKind.Unconfirmed, "прокси запущен, ответ сервера не подтверждён");
+            if (Recovery.Wanted) return new("Telegram", CheckKind.Checking, "ожидание подключения");
+            return new("Telegram", CheckKind.Idle, "выключен");
+        }
+    }
     public string ConnectionTime => startedAt is { } at && IsRunning ? "Прокси работает " + Math.Max(0, (int)(DateTimeOffset.UtcNow - at).TotalMinutes) + " мин" : "Прокси не запущен";
     public int? LastError { get; private set; }
     public string Port { get; set; }
@@ -162,7 +173,7 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
             ServerCheck = new("Сервер Telegram", "Ответ MTProto через прокси",
                 passed ? CheckKind.Passed : CheckKind.Unconfirmed,
                 passed ? "Получен ответ MTProto." : "Проверочный запрос не получил корректного ответа.");
-            Status = passed ? "Прокси запущен, сервер Telegram отвечает. Подключите его в Telegram."
+            Status = passed ? "Прокси запущен на этом компьютере."
                     : "Прокси запущен. Ответ на проверочный запрос не подтверждён.";
         }
         else
@@ -196,7 +207,7 @@ internal sealed class TelegramViewModel : ObservableState, IDisposable
         Status = "Запускаем встроенный прокси…";
         await runner.StartAsync(configuration, state.Telegram, ct);
         startedAt = DateTimeOffset.UtcNow;
-        Status = "Встроенный прокси готов. Нажмите «Открыть в Telegram» и подтвердите подключение.";
+        Status = "Прокси запущен. Проверяем сервер Telegram…";
         log("Telegram: встроенный движок запущен; проверяем сервер.");
         await CheckServerAsync(ct);
     }
