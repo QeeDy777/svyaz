@@ -274,121 +274,13 @@ h2 {
 .app-window {
   width:300px;
   max-width:100%;
-  background:#fcfdf9;
-  border:1px solid #cbd5c8;
+  height:auto;
+  display:block;
+  border:1px solid #393d40;
   border-radius:12px;
   overflow:hidden;
   box-shadow:0 28px 64px -28px #37533a55;
   transform:rotate(-3deg);
-}
-
-.window-bar {
-  padding:9px 12px;
-  background:#eef1e9;
-  display:flex;
-  justify-content:space-between;
-  font-size:10px;
-  color:var(--muted);
-}
-
-.window-bar>span:first-child {
-  display:flex;
-  align-items:center;
-  gap:6px;
-}
-
-.window-bar img {
-  border-radius:3px;
-}
-
-.app-content {
-  padding:24px;
-}
-
-.app-title {
-  font-size:20px;
-  font-weight:600;
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-}
-
-.app-title>span {
-  font-size:10px;
-  font-weight:400;
-  color:var(--muted);
-}
-
-.app-tabs {
-  display:flex;
-  justify-content:space-between;
-  margin:24px -4px 0;
-  font-size:10px;
-  color:var(--muted);
-  border-bottom:1px solid var(--line);
-}
-
-.app-tabs span {
-  padding:0 4px 12px;
-}
-
-.app-tabs span:first-child {
-  color:var(--green);
-  border-bottom:2px solid var(--green);
-}
-
-.app-status {
-  text-align:center;
-  font-size:18px;
-  line-height:1.35;
-  letter-spacing:-.03em;
-  margin:28px 0 24px;
-}
-
-.power {
-  width:106px;
-  height:106px;
-  margin:auto;
-  border-radius:50%;
-  display:grid;
-  place-items:center;
-  background:var(--green);
-  color:white;
-  box-shadow:0 0 0 9px #e5ede1;
-}
-
-.power svg {
-  width:40px;
-  height:40px;
-}
-
-.power-label {
-  text-align:center;
-  font-size:12px;
-  font-weight:600;
-  margin:19px 0 25px;
-}
-
-.app-checks>div {
-  display:flex;
-  justify-content:space-between;
-  font-size:11px;
-  padding:9px 0;
-}
-
-.app-checks>div>span:last-child {
-  color:var(--muted);
-  font-size:10px;
-}
-
-.app-bottom {
-  display:flex;
-  justify-content:space-between;
-  font-size:10px;
-  border-top:1px solid var(--line);
-  padding-top:16px;
-  margin-top:14px;
-  color:var(--muted);
 }
 
 figcaption {
@@ -396,12 +288,6 @@ figcaption {
   margin-top:34px;
   text-align:center;
   color:var(--muted);
-}
-
-figcaption span {
-  display:block;
-  font-size:10px;
-  margin-top:6px;
 }
 
 .ribbon {
