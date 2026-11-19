@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using DiscordRoute.App;
+using DiscordRoute.Core;
 using static WindowsChecks;
 
 internal static class QuietCheckTests
@@ -68,8 +69,13 @@ internal static class QuietCheckTests
         Finish(telegram.RunAsync(_ => throw new InvalidOperationException("quiet-check failure"), background: true));
         check(telegram.HasFailure && !telegram.ServerVerified && telegram.Recovery.Pending, "Background Telegram errors remain visible and trigger recovery");
         Finish(telegram.StopRequestedAsync());
-        Finish(model.RunAsync(_ => throw new InvalidOperationException("quiet-check failure"), background: true));
+        Finish(model.RunAsync(_ => throw new ConnectionFailure("Не найден адрес голосового сервера", settings: true), background: true));
         check(model.HasError && model.Heading.Contains("внимание"), "Background Discord errors remain visible");
+        model.HelpCommand.Execute(null);
+        window.UpdateLayout();
+        check(tabs.SelectedIndex == 2 && ((Expander)window.FindName("ConnectionSettings")).IsExpanded &&
+            ((TextBox)window.FindName("VoiceInput")).IsVisible, "Voice recovery opens the field inside collapsed connection settings");
+        tabs.SelectedIndex = 0;
         model.StopCommand.Execute(null);
         Finish(ConnectionOnlyChecks.RunAsync(model, check, () =>
         {
