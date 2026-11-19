@@ -2,8 +2,8 @@ namespace DiscordRoute.App;
 
 internal static class ReleaseNotes
 {
-    public const string Current = "0.13.2 · Логотип ASF Control\n\n" +
-        "Робот ASF появился в окне, трее и на стандартных ярлыках «Связи».";
+    public const string Current = "0.13.3 · Логотип из новой шапки ASF Control\n\n" +
+        "Три наклонные полосы на янтарной плитке теперь видны в окне, в трее и на стандартных ярлыках «Связи».";
 
     public const string Earlier = "0.13.1 · Автоматическое обновление значков ярлыков после обновления или отката.\n\n" +
         "0.13.0 · Компактная шапка, раскрываемые настройки и янтарная иконка.\n\n" +
