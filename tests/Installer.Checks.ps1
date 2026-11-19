@@ -35,14 +35,26 @@ Install 'legacy' $legacySetup '/TASKS=desktopicon'
 $legacy = Get-Content "$stateDir/current.json" -Raw | ConvertFrom-Json
 Assert ($legacy.Version -eq '0.13.0') 'Legacy stable launcher registered'
 $links = @('CommonPrograms', 'CommonDesktopDirectory') | ForEach-Object { Join-Path ([Environment]::GetFolderPath($_)) 'Связь.lnk' }
-$wsh = New-Object -ComObject WScript.Shell
+$shell = New-Object -ComObject Shell.Application
 $expectedExe = [IO.Path]::GetFullPath("$root/Versions/$($pending.Id)/Связь.exe")
-function IconsMigrated {
+function IconsMigrated([switch]$ShowDetails) {
+    $allMigrated = $true
     foreach ($link in $links) {
-        if (-not (Test-Path -LiteralPath $link)) { return $false }
-        if ($wsh.CreateShortcut($link).IconLocation -ne "$expectedExe,0") { return $false }
+        $item = $shell.NameSpace((Split-Path $link)).ParseName([IO.Path]::GetFileName($link))
+        if ($null -eq $item) {
+            if ($ShowDetails) { Write-Host "Missing shortcut: $link" }
+            $allMigrated = $false
+            continue
+        }
+        [string]$iconPath = ''
+        $iconIndex = $item.GetLink.GetIconLocation([ref]$iconPath)
+        if ($ShowDetails) {
+            $target = $item.ExtendedProperty('System.Link.TargetParsingPath')
+            Write-Host "Shortcut: $link; target: $target; icon: $iconPath,$iconIndex; expected icon: $expectedExe,0"
+        }
+        if ($iconIndex -ne 0 -or $iconPath -ne $expectedExe) { $allMigrated = $false }
     }
-    return $true
+    return $allMigrated
 }
 Assert (-not (IconsMigrated)) 'The legacy installer created shortcuts without an icon override for the new version'
 [IO.File]::WriteAllText("$root/Data/settings.json", $settings.Replace('"AutoUpdate":false', '"AutoUpdate":true'))
@@ -52,7 +64,7 @@ try {
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
     while (-not (IconsMigrated) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 200 }
     Assert ((Get-Content "$stateDir/current.json" -Raw | ConvertFrom-Json).Id -eq $pending.Id) 'Old updater confirmed the new version'
-    Assert (IconsMigrated) 'New version refreshed both original installer shortcuts after legacy handoff'
+    Assert (IconsMigrated -ShowDetails) 'New version refreshed both original installer shortcuts after legacy handoff'
 }
 finally {
     if (-not $oldProcess.HasExited) { $oldProcess.Kill($true); $oldProcess.WaitForExit() }
@@ -65,7 +77,6 @@ Assert ($current.Version -eq $version) 'Installer registered version for existin
 Assert (Test-Path "$root/Versions/$($current.Id)/Связь.exe") 'Versioned runtime installed'
 $shortcut = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'Связь.lnk'
 Assert (Test-Path $shortcut) 'Start menu shortcut installed'
-$shell = New-Object -ComObject Shell.Application
 $shortcutItem = $shell.NameSpace((Split-Path $shortcut)).ParseName([IO.Path]::GetFileName($shortcut))
 $shortcutTarget = $shortcutItem.ExtendedProperty('System.Link.TargetParsingPath')
 Write-Host "Shortcut target: $shortcutTarget; expected: $application\Связь.exe"
