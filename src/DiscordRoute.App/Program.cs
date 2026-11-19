@@ -7,6 +7,7 @@ namespace DiscordRoute.App;
 
 internal static class Program
 {
+    private const string ParentRefreshesIcons = "--parent-refreshes-shortcut-icons";
     // Keep the original location so a display-name change preserves existing settings and packages.
     internal static string InstallRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "DiscordRoute");
     internal static string DataRoot => Path.Combine(InstallRoot, "Data");
@@ -56,7 +57,12 @@ internal static class Program
                         if (readyToken != null)
                         {
                             RoutedEventHandler? acknowledge = null;
-                            acknowledge = (_, _) => { window.Loaded -= acknowledge; UpdateHandoff.Signal(readyToken); };
+                            acknowledge = (_, _) =>
+                            {
+                                window.Loaded -= acknowledge;
+                                UpdateHandoff.Signal(readyToken);
+                                if (!args.Contains(ParentRefreshesIcons)) _ = RefreshAfterLegacyHandoffAsync(updater, readyToken);
+                            };
                             window.Loaded += acknowledge;
                         }
                         application.Run(window);
@@ -66,11 +72,13 @@ internal static class Program
             }
             if (Restart is { } restart)
             {
+                string executable;
                 try
                 {
-                    if (UpdateHandoff.Start(updater.Executable(restart.App), restart.Arguments,
-                        () => updater.Promote(restart.App, restart.Rollback), TimeSpan.FromSeconds(30))) return;
-                    throw new IOException("Новая версия не подтвердила запуск за 30 секунд.");
+                    executable = updater.Executable(restart.App);
+                    if (!UpdateHandoff.Start(executable, [.. restart.Arguments, ParentRefreshesIcons],
+                        () => updater.Promote(restart.App, restart.Rollback), TimeSpan.FromSeconds(30)))
+                        throw new IOException("Новая версия не подтвердила запуск за 30 секунд.");
                 }
                 catch (Exception ex)
                 {
@@ -81,7 +89,9 @@ internal static class Program
                     foreach (var argument in restart.Arguments) fallback.ArgumentList.Add(argument);
                     Process.Start(fallback);
                     MessageBox.Show("Обновление не запустилось. Возвращаем предыдущую версию «Связи». Подробности — в startup-error.log.", "Связь");
+                    return;
                 }
+                ShortcutIcons.Refresh(InstallRoot, executable);
             }
         }
         catch (Exception ex)
@@ -94,6 +104,24 @@ internal static class Program
             var details = logPath == null ? "Журнал ошибки сохранить не удалось." : "Подробности: " + logPath;
             MessageBox.Show("Не удалось запустить «Связь»:\n" + cause.GetType().Name + ": " + cause.Message +
                 "\n\n" + details, "Связь", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private static async Task RefreshAfterLegacyHandoffAsync(AppUpdater updater, string token)
+    {
+        // A pre-0.13.1 parent closes the ready event after it commits current.json.
+        var executable = Environment.ProcessPath!;
+        var versionDirectory = Path.GetDirectoryName(executable)!;
+        if (!string.Equals(Path.GetDirectoryName(versionDirectory), Path.Combine(InstallRoot, "Versions"), StringComparison.OrdinalIgnoreCase)) return;
+        try
+        {
+            await UpdateHandoff.WaitForParentAsync(token);
+            if (updater.Read("current")?.Id == Path.GetFileName(versionDirectory))
+                ShortcutIcons.Refresh(InstallRoot, executable);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException or FormatException)
+        {
+            System.Diagnostics.Trace.WriteLine(ex);
         }
     }
 }

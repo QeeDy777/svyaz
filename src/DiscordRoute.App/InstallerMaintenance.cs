@@ -24,6 +24,7 @@ internal static class InstallerMaintenance
             definition.Actions.Item(1).Path = path;
             folder.RegisterTaskDefinition(task.Name, definition, 4, definition.Principal.UserId, null, definition.Principal.LogonType);
         });
+        ShortcutIcons.Refresh(Program.InstallRoot, path);
     }
 
     private static string RepairRuntime()

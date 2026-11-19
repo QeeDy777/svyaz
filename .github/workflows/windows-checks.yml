@@ -74,6 +74,18 @@ jobs:
         run: |
           $version = ([xml](Get-Content Directory.Build.props -Raw)).Project.PropertyGroup.Version
           dotnet run --project tests/DiscordRoute.WindowsChecks -- "dist/Svyaz-$version-win-x64-unsigned.zip" dist/rollback-fixture/Svyaz-0.6.1-win-x64-unsigned.zip
+      - name: Download previous installer for shortcut migration
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $name = 'Svyaz-0.13.0-win-x64-setup-unsigned.exe'
+          $release = gh api repos/QeeDy777/svyaz/releases/tags/v0.13.0 | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot fetch the previous installer release' }
+          gh release download v0.13.0 --repo QeeDy777/svyaz --pattern $name --dir dist/legacy-installer
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot download the previous installer' }
+          $hash = (Get-FileHash "dist/legacy-installer/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+          if (($release.assets | Where-Object name -eq $name).digest -ne "sha256:$hash") { throw 'Previous installer checksum mismatch' }
       - name: Installer lifecycle
         shell: pwsh
         run: ./tests/Installer.Checks.ps1

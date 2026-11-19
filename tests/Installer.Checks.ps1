@@ -13,14 +13,52 @@ function Assert($condition, $message) {
     if (-not $condition) { throw $message }
     Write-Host "PASS: $message"
 }
-function Install($label) {
+function Install($label, $package = $installer, $tasks = '/TASKS=') {
     $log = Join-Path $PWD "dist/installer-$label.log"
-    $process = Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$log`"") -PassThru -Wait
+    $process = Start-Process -FilePath $package -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', $tasks, "/LOG=`"$log`"") -PassThru -Wait
     Assert ($process.ExitCode -eq 0) "Installer $label succeeded"
 }
 New-Item -ItemType Directory -Force "$root/Data" | Out-Null
 $settings = '{"AutoUpdate":false,"AutostartConfigured":true,"VoiceEndpoint":"preserve-me"}'
 [IO.File]::WriteAllText("$root/Data/settings.json", $settings)
+
+# Use the last installer whose launcher only commits current.json after the new window loads.
+$legacySetup = (Resolve-Path 'dist/legacy-installer/Svyaz-0.13.0-win-x64-setup-unsigned.exe').Path
+
+# Prepare the published runtime as a pending update, then let the genuine old EXE perform the handoff.
+$seed = Start-Process -FilePath (Resolve-Path 'dist/win-x64/Связь.exe').Path -ArgumentList '--install' -Wait -PassThru
+Assert ($seed.ExitCode -eq 0) 'New runtime installed into Versions'
+$stateDir = Join-Path $root 'Data/AppUpdate'
+$pending = Get-Content "$stateDir/current.json" -Raw | ConvertFrom-Json
+Move-Item "$stateDir/current.json" "$stateDir/pending.json"
+Install 'legacy' $legacySetup '/TASKS=desktopicon'
+$legacy = Get-Content "$stateDir/current.json" -Raw | ConvertFrom-Json
+Assert ($legacy.Version -eq '0.13.0') 'Legacy stable launcher registered'
+$links = @('CommonPrograms', 'CommonDesktopDirectory') | ForEach-Object { Join-Path ([Environment]::GetFolderPath($_)) 'Связь.lnk' }
+$wsh = New-Object -ComObject WScript.Shell
+$expectedExe = [IO.Path]::GetFullPath("$root/Versions/$($pending.Id)/Связь.exe")
+function IconsMigrated {
+    foreach ($link in $links) {
+        if (-not (Test-Path -LiteralPath $link)) { return $false }
+        if ($wsh.CreateShortcut($link).IconLocation -ne "$expectedExe,0") { return $false }
+    }
+    return $true
+}
+Assert (-not (IconsMigrated)) 'The legacy installer created shortcuts without an icon override for the new version'
+[IO.File]::WriteAllText("$root/Data/settings.json", $settings.Replace('"AutoUpdate":false', '"AutoUpdate":true'))
+$oldProcess = Start-Process -FilePath "$application/Связь.exe" -PassThru
+try {
+    Assert ($oldProcess.WaitForExit(60000) -and $oldProcess.ExitCode -eq 0) 'Previous release handed off to the new process'
+    $deadline = [DateTime]::UtcNow.AddSeconds(20)
+    while (-not (IconsMigrated) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 200 }
+    Assert ((Get-Content "$stateDir/current.json" -Raw | ConvertFrom-Json).Id -eq $pending.Id) 'Old updater confirmed the new version'
+    Assert (IconsMigrated) 'New version refreshed both original installer shortcuts after legacy handoff'
+}
+finally {
+    if (-not $oldProcess.HasExited) { $oldProcess.Kill($true); $oldProcess.WaitForExit() }
+    Get-Process -Name 'Связь' -ErrorAction SilentlyContinue | Where-Object Path -eq $expectedExe | ForEach-Object { $_.Kill($true); $_.WaitForExit() }
+    [IO.File]::WriteAllText("$root/Data/settings.json", $settings)
+}
 Install first
 $current = Get-Content "$root/Data/AppUpdate/current.json" -Raw | ConvertFrom-Json
 Assert ($current.Version -eq $version) 'Installer registered version for existing shortcuts and autostart'

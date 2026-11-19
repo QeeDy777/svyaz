@@ -6,10 +6,11 @@ internal sealed record UpdateRestart(InstalledApp App, string[] Arguments, bool 
 
 internal static class UpdateHandoff
 {
+    private const string ReadyEventPrefix = "Local\\Svyaz-Update-";
     public static bool Start(string executable, string[] arguments, Action ready, TimeSpan timeout)
     {
         var token = Guid.NewGuid().ToString("N");
-        using var signal = new EventWaitHandle(false, EventResetMode.ManualReset, "Local\\Svyaz-Update-" + token);
+        using var signal = new EventWaitHandle(false, EventResetMode.ManualReset, ReadyEventPrefix + token);
         var start = new ProcessStartInfo(executable) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(executable)! };
         foreach (var argument in arguments) start.ArgumentList.Add(argument);
         start.ArgumentList.Add("--update-ready"); start.ArgumentList.Add(token);
@@ -36,8 +37,17 @@ internal static class UpdateHandoff
     public static void Signal(string token)
     {
         if (!Guid.TryParseExact(token, "N", out _)) throw new IOException("Неверное подтверждение обновления.");
-        using var signal = EventWaitHandle.OpenExisting("Local\\Svyaz-Update-" + token);
+        using var signal = EventWaitHandle.OpenExisting(ReadyEventPrefix + token);
         signal.Set();
+    }
+
+    internal static async Task WaitForParentAsync(string token)
+    {
+        while (EventWaitHandle.TryOpenExisting(ReadyEventPrefix + token, out var signal))
+        {
+            signal.Dispose();
+            await Task.Delay(500);
+        }
     }
 
     private static void Stop(Process process)
