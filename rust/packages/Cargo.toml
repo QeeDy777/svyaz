@@ -1,0 +1,16 @@
+[package]
+name = "svyaz-packages"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+regex = "1"
+serde_json = "1"
+sha2 = "0.10"
+svyaz-settings = { path = "../settings" }
+svyaz-update = { path = "../update" }
+tempfile = "3"
+uuid = { version = "1", features = ["v4"] }
+zip = { version = "4.6", default-features = false, features = ["deflate"] }
+reqwest = {version="0.12",default-features=false,features=["blocking","native-tls"]}

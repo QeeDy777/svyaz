@@ -4,6 +4,9 @@
 #ifndef Variant
   #define Variant "unsigned"
 #endif
+#ifndef AppFiles
+  #define AppFiles "..\dist\win-x64"
+#endif
 [Setup]
 AppId={{D00D54B4-A1F3-4BC6-9F68-4B42D64502A9}
 AppName=Связь
@@ -50,7 +53,7 @@ UninstallAppRunningError=«Связь» ещё работает. Выберит�
 Name: desktopicon; Description: "Ярлык на рабочем столе"; Flags: unchecked
 
 [Files]
-Source: "..\dist\win-x64\*"; DestDir: "{app}\Application"; Flags: ignoreversion
+Source: "{#AppFiles}\*"; DestDir: "{app}\Application"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\Связь"; Filename: "{app}\Application\Связь.exe"; WorkingDir: "{app}\Application"
