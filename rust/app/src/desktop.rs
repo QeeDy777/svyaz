@@ -356,6 +356,35 @@ fn navigation(ui: &mut Ui, tab: Tab, label: &str, selected: bool) -> egui::Respo
     response
 }
 
+fn initial_client_size() -> [f32; 2] {
+    use windows_sys::Win32::{
+        Foundation::RECT,
+        UI::{
+            HiDpi::GetDpiForSystem,
+            WindowsAndMessaging::{SPI_GETWORKAREA, SystemParametersInfoW},
+        },
+    };
+    let mut work = RECT::default();
+    let ok =
+        unsafe { SystemParametersInfoW(SPI_GETWORKAREA, 0, (&mut work as *mut RECT).cast(), 0) };
+    let scale = (unsafe { GetDpiForSystem() } as f32 / 96.).max(1.);
+    let height = if ok != 0 {
+        ((work.bottom - work.top) as f32 / scale - 40.).clamp(1., 640.)
+    } else {
+        640.
+    };
+    [424., height]
+}
+
+fn service_badge(ui: &mut Ui, name: &str, color: Color32, detail: &str) {
+    // This row uses a right-to-left layout; allocate the caption before its dot.
+    ui.label(RichText::new(name).size(11.).color(MUTED))
+        .on_hover_text(detail);
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(6., 10.), egui::Sense::hover());
+    ui.painter().circle_stroke(rect.center(), 2.5, (1., color));
+    response.on_hover_text(detail);
+}
+
 pub(super) fn show(
     install: PathBuf,
     data: PathBuf,
@@ -369,7 +398,7 @@ pub(super) fn show(
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Связь")
-            .with_inner_size([424., 640.])
+            .with_inner_size(initial_client_size())
             .with_resizable(false)
             .with_maximize_button(false)
             .with_icon(icon.clone()),
@@ -805,13 +834,47 @@ impl eframe::App for Desktop {
                     ui.label(RichText::new("Связь").font(semibold(19.)).color(INK));
                     ui.label(RichText::new(running().to_string()).color(MUTED).size(12.));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let (label, color) = match self.snap.as_deref() {
-                            Some(s) if s.verified => ("● Подключено", GREEN),
-                            Some(s) if s.discord => ("○ Без проверки", AMBER),
-                            Some(s) if s.telegram => ("● Telegram", GREEN),
-                            _ => ("○ Отключено", MUTED),
-                        };
-                        ui.label(RichText::new(label).color(color).size(12.));
+                        ui.spacing_mut().item_spacing.x = 4.;
+                        let route =
+                            self.snap.as_ref().is_some_and(|s| s.discord) || self.connection_busy;
+                        let telegram = self
+                            .snap
+                            .as_ref()
+                            .is_some_and(|s| s.telegram || s.telegram_wanted)
+                            || self.tg_busy;
+                        if telegram {
+                            let verified = self.tg_quality.back().is_some_and(Option::is_some);
+                            service_badge(
+                                ui,
+                                "Telegram",
+                                if verified { GREEN } else { AMBER },
+                                &self.tg_status,
+                            );
+                        }
+                        if route {
+                            if telegram {
+                                ui.add_space(5.);
+                            }
+                            let name = if self.services.discord {
+                                "Discord"
+                            } else {
+                                "YouTube"
+                            };
+                            let verified = self.snap.as_ref().is_some_and(|s| s.verified);
+                            service_badge(
+                                ui,
+                                name,
+                                if verified { GREEN } else { AMBER },
+                                &self.status,
+                            );
+                        }
+                        if !route && !telegram {
+                            if self.error.is_empty() {
+                                service_badge(ui, "Отключено", MUTED, "Сервисы выключены");
+                            } else {
+                                service_badge(ui, "Сбой", RED, &self.error);
+                            }
+                        }
                     });
                 });
             });
@@ -849,7 +912,9 @@ impl eframe::App for Desktop {
                     if !self.error.is_empty() {
                         ui.colored_label(RED, self.error.clone());
                     }
-                    if self.tab != Tab::Connection && !self.feedback.is_empty() {
+                    if matches!(self.tab, Tab::Telegram | Tab::Settings)
+                        && !self.feedback.is_empty()
+                    {
                         hint(ui, &self.feedback);
                     }
                     self.update_banner(ui);
