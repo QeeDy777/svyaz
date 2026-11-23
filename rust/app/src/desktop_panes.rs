@@ -668,7 +668,7 @@ impl Desktop {
                 disclosure(ui, "Что нового", |ui| {
                     let heading = ui.strong(format!("Связь {}", running()));
                     if show_notes { heading.scroll_to_me(Some(egui::Align::Center)); }
-                    hint(ui, "Новая шапка окна, компактная диагностика и звуки подключения. Исправлены уведомления о смене сети и проверка Telegram.");
+                    hint(ui, "Во время перемещения окна Windows использует уже отрисованный кадр. После отпускания мыши «Связь» сразу показывает актуальное состояние.");
                     disclosure(ui, "Предыдущие выпуски", |ui| hint(ui, include_str!("release_history.txt").trim_end()));
                 });
                 if let Some(version) = self.snap.as_ref().and_then(|s| s.previous.as_ref()).map(|s| s.version.to_string()) {

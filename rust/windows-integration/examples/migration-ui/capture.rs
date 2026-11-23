@@ -203,7 +203,7 @@ pub(super) fn check_focus(hwnd: HWND, pid: u32) -> io::Result<()> {
     Ok(())
 }
 
-fn choose_tab(hwnd: HWND, pid: u32, tab: usize) -> io::Result<()> {
+pub(super) fn choose_tab(hwnd: HWND, pid: u32, tab: usize) -> io::Result<()> {
     let key = VK_1 + tab as u16;
     let keys = [
         (VK_CONTROL, 0),

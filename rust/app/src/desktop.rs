@@ -877,6 +877,7 @@ impl Desktop {
 
 impl eframe::App for Desktop {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.chrome.record_test_frame();
         self.initialized(ctx);
         self.receive(ctx);
         self.on_tray(ctx);

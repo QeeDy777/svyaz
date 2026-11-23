@@ -178,7 +178,7 @@ try {
     } while ([DateTime]::UtcNow -lt $deadline)
     Assert ($prefs['LastSeenAppVersion'] -eq $version.ToString()) 'First launch recorded the release notes'
     Stop-ExactProcess (Executable $next)
-    Start-Process -FilePath (Executable $next) -ArgumentList '--skip-self-update'
+    Start-Process -FilePath (Executable $next) -ArgumentList '--skip-self-update' -Environment @{ SVYAZ_TEST_FRAME_COUNTER = '1' }
     Assert-Runtime $next $true
     Stop-ExactProcess (Executable $next)
     $loaded = Get-Content $settings -Raw | ConvertFrom-Json
