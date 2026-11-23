@@ -54,122 +54,8 @@ function Stop-ExactProcess([string]$path) {
     }
 }
 function Save-NativeTabs([Diagnostics.Process]$runtime) {
-    Add-Type -AssemblyName System.Drawing.Common
-    Add-Type -AssemblyName System.Windows.Forms
-    Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-using System.Text;
-public static class MigrationWindow {
-    [StructLayout(LayoutKind.Sequential)] public struct Rect { public int X, Y, Right, Bottom; }
-    [StructLayout(LayoutKind.Sequential)] public struct Point { public int X, Y; }
-    [DllImport("user32")] public static extern bool GetClientRect(IntPtr hwnd, out Rect size);
-    [DllImport("user32")] public static extern bool ClientToScreen(IntPtr hwnd, ref Point point);
-    [DllImport("user32")] public static extern bool SetForegroundWindow(IntPtr hwnd);
-    [DllImport("user32")] public static extern IntPtr GetForegroundWindow();
-    [DllImport("user32")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
-    [DllImport("user32")] public static extern bool ShowWindowAsync(IntPtr hwnd, int mode);
-    [DllImport("kernel32")] public static extern uint GetCurrentThreadId();
-    [DllImport("user32")] public static extern bool AttachThreadInput(uint from, uint to, bool join);
-    [DllImport("user32")] public static extern bool BringWindowToTop(IntPtr hwnd);
-    [DllImport("user32")] public static extern bool PrintWindow(IntPtr hwnd, IntPtr device, uint flags);
-    [DllImport("user32")] public static extern bool IsWindowVisible(IntPtr hwnd);
-    [DllImport("user32", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr hwnd, StringBuilder name, int capacity);
-    private delegate bool EnumProc(IntPtr hwnd, IntPtr data);
-    [DllImport("user32")] private static extern bool EnumWindows(EnumProc callback, IntPtr data);
-    public static string WindowClass(IntPtr hwnd) {
-        var name = new StringBuilder(256);
-        return GetClassName(hwnd, name, name.Capacity) > 0 ? name.ToString() : "";
-    }
-    public static IntPtr AppWindow(uint pid, string windowClass) {
-        IntPtr found = IntPtr.Zero;
-        EnumWindows((hwnd, ignored) => {
-            GetWindowThreadProcessId(hwnd, out uint owner);
-            if (owner != pid || WindowClass(hwnd) != windowClass ||
-                !GetClientRect(hwnd, out Rect r) || r.Right < 200 || r.Bottom < 280) return true;
-            found = hwnd;
-            return false;
-        }, IntPtr.Zero);
-        return found;
-    }
-}
-'@
-    $hwnd = $runtime.MainWindowHandle
-    $script:NativeWindowClass = [MigrationWindow]::WindowClass($hwnd)
-    Assert ($script:NativeWindowClass.Length -gt 0) 'Captured the actual desktop window class'
-    $null = [MigrationWindow]::ShowWindowAsync($hwnd,5)
-    if (-not [MigrationWindow]::SetForegroundWindow($hwnd)) {
-        [uint32]$owner = 0
-        $foreground = [MigrationWindow]::GetWindowThreadProcessId([MigrationWindow]::GetForegroundWindow(),[ref]$owner)
-        $current = [MigrationWindow]::GetCurrentThreadId()
-        $attached = $foreground -and $foreground -ne $current -and [MigrationWindow]::AttachThreadInput($current,$foreground,$true)
-        try {
-            $null = [MigrationWindow]::BringWindowToTop($hwnd)
-            $null = [MigrationWindow]::SetForegroundWindow($hwnd)
-        } finally { if ($attached) { $null = [MigrationWindow]::AttachThreadInput($current,$foreground,$false) } }
-    }
-    $tabs = 'connection','telegram','settings','journal'
-    for ($i=0; $i -lt $tabs.Count; $i++) {
-        $size = [MigrationWindow+Rect]::new()
-        Assert ([MigrationWindow]::GetClientRect($hwnd,[ref]$size)) 'Native window has a client rectangle'
-        Assert ($size.Right -ge 280 -and $size.Bottom -ge 320) 'The native layout has a visible client area'
-        $point = [MigrationWindow+Point]::new()
-        Assert ([MigrationWindow]::ClientToScreen($hwnd,[ref]$point)) 'Client screenshot is confined to the fixture window'
-        $path = Join-Path $PWD "dist/rust-$($tabs[$i]).png"
-        $deadline = [DateTime]::UtcNow.AddSeconds(5)
-        $verified = $false
-        do {
-            [uint32]$foregroundPid = 0
-            $null = [MigrationWindow]::GetWindowThreadProcessId([MigrationWindow]::GetForegroundWindow(),[ref]$foregroundPid)
-            if ($foregroundPid -ne $runtime.Id) { throw 'Only the intended fixture UI can receive keyboard input.' }
-            [Windows.Forms.SendKeys]::SendWait("^$($i+1)")
-            Start-Sleep -Milliseconds 160
-            foreach ($screen in $false,$true) {
-                $image = [Drawing.Bitmap]::new($size.Right,$size.Bottom)
-                $graphics = [Drawing.Graphics]::FromImage($image)
-                try {
-                    if ($screen) {
-                        # Some graphics drivers draw GL content directly to the screen.
-                        [uint32]$owner = 0
-                        $null = [MigrationWindow]::GetWindowThreadProcessId([MigrationWindow]::GetForegroundWindow(),[ref]$owner)
-                        if ($owner -ne $runtime.Id) { throw 'Native capture lost foreground ownership.' }
-                        $graphics.CopyFromScreen($point.X,$point.Y,0,0,$image.Size)
-                    } else {
-                        $dc=$graphics.GetHdc()
-                        try { $null=[MigrationWindow]::PrintWindow($hwnd,$dc,3) } finally { $graphics.ReleaseHdc($dc) }
-                    }
-                    # Active tab uses #ffb770. Verify the actual rendered tab before publishing its screenshot.
-                    $scores = @(0,0,0,0)
-                    $top = [Math]::Max(0,$size.Bottom-[int]($size.Right*0.105))
-                    for ($y=$top; $y -lt $size.Bottom; $y+=2) {
-                        for ($x=0; $x -lt $size.Right; $x+=2) {
-                            $c=$image.GetPixel($x,$y)
-                            if ($c.R -gt 226 -and $c.G -ge 151 -and $c.G -le 195 -and $c.B -lt 136) {
-                                $col=[Math]::Min(3,[int][Math]::Floor(4*$x/$size.Right))
-                                $scores[$col]++
-                            }
-                        }
-                    }
-                    $max = ($scores | Measure-Object -Maximum).Maximum
-                    if ($max -ge 2 -and $scores[$i] -eq $max -and @($scores | Where-Object {$_ -eq $max}).Count -eq 1) {
-                        # The title must remain readable on the dark header with Windows in Light mode.
-                        $lightPixels = 0
-                        for ($x=[int]($size.Right*0.125); $x -lt [int]($size.Right*0.235); $x++) {
-                            for ($y=[int]($size.Right*0.024); $y -lt [int]($size.Right*0.082); $y++) {
-                                $p = $image.GetPixel($x,$y)
-                                if ($p.R -ge 190 -and $p.G -ge 190 -and $p.B -ge 190) { $lightPixels++ }
-                            }
-                        }
-                        Assert ($lightPixels -ge 15) 'The application title has readable light glyphs on the dark header'
-                        $image.Save($path,[Drawing.Imaging.ImageFormat]::Png)
-                        $verified = $true
-                        break
-                    }
-                } finally { $graphics.Dispose(); $image.Dispose() }
-            }
-        } while (-not $verified -and [DateTime]::UtcNow -lt $deadline)
-        Assert $verified "Captured the rendered $($tabs[$i]) tab on Windows"
-    }
+    $script:NativeWindowClass = & $windowCheck capture $runtime.Id ($runtime.MainWindowHandle.ToInt64()) (Join-Path $PWD dist)
+    Assert ($LASTEXITCODE -eq 0 -and $script:NativeWindowClass) 'Captured all four rendered tabs and their readable titles on the fixture window'
 }
 function Assert-Runtime($item,[bool]$native,[bool]$captureTabs=$true) {
     $exe = Executable $item
@@ -218,15 +104,10 @@ function Assert-TrayStartup([string]$nativeExe) {
         [IO.File]::WriteAllText($preferences,'{"Services":{"Discord":false,"YouTube":false,"Telegram":false},"QuietNotifications":true}')
         $runtime = Start-Process $nativeExe -ArgumentList @('--startup','--parent-refreshes-shortcut-icons','--update-ready',$token) -PassThru
         Assert ($ready.WaitOne(20000)) 'The logon runtime completed its real UI initialization'
-        $deadline = [DateTime]::UtcNow.AddSeconds(5)
-        do {
-            Start-Sleep -Milliseconds 100
-            $runtime.Refresh()
-            if ($runtime.HasExited) { throw 'The logon runtime exited instead of remaining in the tray.' }
-            $window = [MigrationWindow]::AppWindow($runtime.Id,$script:NativeWindowClass)
-            $hidden = $window -ne [IntPtr]::Zero -and -not [MigrationWindow]::IsWindowVisible($window)
-        } while (-not $hidden -and [DateTime]::UtcNow -lt $deadline)
-        Assert $hidden "A ready logon runtime keeps its main window hidden (class=$script:NativeWindowClass, handle=$window)"
+        & $windowCheck hidden $runtime.Id $script:NativeWindowClass
+        $exit = $LASTEXITCODE
+        $runtime.Refresh()
+        Assert ($exit -eq 0 -and -not $runtime.HasExited) 'The ready logon runtime keeps its main window hidden'
     } finally {
         Stop-ExactProcess $nativeExe
         $ready.Dispose()
@@ -234,6 +115,14 @@ function Assert-TrayStartup([string]$nativeExe) {
         [IO.File]::WriteAllBytes($preferences,$savedPrefs)
     }
 }
+
+# Resolve the exact test executable from Cargo, including custom target-directory configurations.
+$build = cargo build --locked --release --target x86_64-pc-windows-msvc -p svyaz-windows --example migration-ui --message-format=json-render-diagnostics
+if ($LASTEXITCODE) { throw 'Could not build the Windows desktop test helper.' }
+$windowCheck = $build | ForEach-Object { $_ | ConvertFrom-Json } |
+    Where-Object { $_.reason -eq 'compiler-artifact' -and $_.target.name -eq 'migration-ui' -and $_.executable } |
+    Select-Object -ExpandProperty executable -Last 1
+Assert ($windowCheck -and (Test-Path -LiteralPath $windowCheck)) 'Located the native Windows desktop test helper'
 
 Assert ($version -gt [Version]'0.13.3') 'Native EXE has an updatable numeric Windows file version'
 $null = New-Item -ItemType Directory -Force $data

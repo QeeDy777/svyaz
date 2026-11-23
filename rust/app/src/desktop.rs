@@ -40,11 +40,9 @@ enum Tab {
 }
 
 fn brand() -> io::Result<egui::IconData> {
-    let image = image::load_from_memory(include_bytes!(
-        "../../../src/DiscordRoute.App/Assets/icon-source.png"
-    ))
-    .map_err(io::Error::other)?
-    .to_rgba8();
+    let image = image::load_from_memory(include_bytes!("../assets/icon-source.png"))
+        .map_err(io::Error::other)?
+        .to_rgba8();
     let (width, height) = image.dimensions();
     Ok(egui::IconData {
         rgba: image.into_raw(),

@@ -3,7 +3,7 @@ on:
   push:
     branches: [main, 'migration/native-rust']
   pull_request:
-    paths: ['rust/**', 'Cargo.*', 'build.ps1', 'scripts/*.ps1', 'installer/**', 'src/DiscordRoute.App/Assets/**', '.github/workflows/rust.yml']
+    paths: ['rust/**', 'Cargo.*', 'build.ps1', 'scripts/*.ps1', 'installer/**', '.github/workflows/rust.yml']
   workflow_dispatch:
 
 permissions:
