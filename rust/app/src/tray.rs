@@ -40,6 +40,7 @@ pub struct Tray {
     strategy: MenuItem,
 }
 struct Callbacks {
+    main_window: HWND,
     ctx: egui::Context,
     menu: Menu,
     menu_open: Cell<bool>,
@@ -86,6 +87,10 @@ impl Callbacks {
     fn queue(&self, action: TrayAction) {
         self.actions.borrow_mut().push_back(action);
         if action == TrayAction::Open {
+            // A hidden HWND may receive no paint messages until the tray restores it.
+            unsafe {
+                ShowWindow(self.main_window, SW_RESTORE);
+            }
             self.ctx
                 .send_viewport_cmd(egui::ViewportCommand::Visible(true));
             self.ctx
@@ -146,7 +151,7 @@ unsafe extern "system" fn window_event(
 }
 
 impl Tray {
-    pub fn new(ctx: &egui::Context) -> io::Result<Self> {
+    pub fn new(ctx: &egui::Context, main_window: HWND) -> io::Result<Self> {
         let menu = Menu::new();
         for (id, title) in [
             ("open", "Открыть"),
@@ -194,6 +199,7 @@ impl Tray {
                 return Err(io::Error::last_os_error());
             }
             let callbacks = Box::new(Callbacks {
+                main_window,
                 ctx: ctx.clone(),
                 menu,
                 menu_open: Cell::new(false),

@@ -4,6 +4,7 @@ use super::{
     worker::{Command, Event, Snapshot, Worker},
 };
 use eframe::egui::{self, Color32, Frame, Margin, RichText, Stroke, Ui, Vec2, ViewportCommand};
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::{
     collections::VecDeque,
     fs, io,
@@ -13,6 +14,10 @@ use std::{
 use svyaz_connection::{CheckResult, Outcome, ProbeResult};
 use svyaz_settings::{GameFilterSettings, ServiceSelection};
 use svyaz_update::{State, Updater};
+use windows_sys::Win32::{
+    Foundation::HWND,
+    UI::WindowsAndMessaging::{IsWindowVisible, SW_HIDE, ShowWindow},
+};
 
 #[path = "desktop_panes.rs"]
 mod panes;
@@ -234,7 +239,11 @@ pub(super) fn show(
                 ),
                 egui::TextureOptions::LINEAR,
             );
-            let tray = Tray::new(ctx)?;
+            let RawWindowHandle::Win32(handle) = cc.window_handle()?.as_raw() else {
+                return Err(io::Error::other("Не найдено окно Windows.").into());
+            };
+            let window = handle.hwnd.get() as HWND;
+            let tray = Tray::new(ctx, window)?;
             let worker = Worker::spawn(install.clone(), data.clone(), ctx.clone());
             Ok(Box::new(Desktop {
                 worker,
@@ -246,7 +255,7 @@ pub(super) fn show(
                 startup: Some(args),
                 token,
                 legacy_parent,
-                rendered: false,
+                window,
                 visible: true,
                 exiting: false,
                 restart: written,
@@ -297,7 +306,7 @@ struct Desktop {
     startup: Option<Vec<String>>,
     token: Option<String>,
     legacy_parent: bool,
-    rendered: bool,
+    window: HWND,
     visible: bool,
     exiting: bool,
     restart: Arc<Mutex<Option<Restart>>>,
@@ -421,6 +430,10 @@ impl Desktop {
     }
     fn hide(&mut self, ctx: &egui::Context) {
         self.visible = false;
+        // Apply the tray transition to the actual Windows window independently of frame scheduling.
+        unsafe {
+            ShowWindow(self.window, SW_HIDE);
+        }
         ctx.send_viewport_cmd(ViewportCommand::Visible(false));
     }
     fn on_tray(&mut self, ctx: &egui::Context) {
@@ -512,8 +525,9 @@ impl Desktop {
         }
     }
     fn initialized(&mut self, ctx: &egui::Context) {
-        if !self.rendered {
-            self.rendered = true;
+        // eframe shows the root HWND after its first presentation. update() may run
+        // several layout passes before that point, including on a software adapter.
+        if self.startup.is_some() && unsafe { IsWindowVisible(self.window) } == 0 {
             ctx.request_repaint();
             return;
         }

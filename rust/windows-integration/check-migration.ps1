@@ -59,6 +59,7 @@ function Save-NativeTabs([Diagnostics.Process]$runtime) {
     Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 public static class MigrationWindow {
     [StructLayout(LayoutKind.Sequential)] public struct Rect { public int X, Y, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] public struct Point { public int X, Y; }
@@ -72,9 +73,30 @@ public static class MigrationWindow {
     [DllImport("user32")] public static extern bool AttachThreadInput(uint from, uint to, bool join);
     [DllImport("user32")] public static extern bool BringWindowToTop(IntPtr hwnd);
     [DllImport("user32")] public static extern bool PrintWindow(IntPtr hwnd, IntPtr device, uint flags);
+    [DllImport("user32")] public static extern bool IsWindowVisible(IntPtr hwnd);
+    [DllImport("user32", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr hwnd, StringBuilder name, int capacity);
+    private delegate bool EnumProc(IntPtr hwnd, IntPtr data);
+    [DllImport("user32")] private static extern bool EnumWindows(EnumProc callback, IntPtr data);
+    public static string WindowClass(IntPtr hwnd) {
+        var name = new StringBuilder(256);
+        return GetClassName(hwnd, name, name.Capacity) > 0 ? name.ToString() : "";
+    }
+    public static IntPtr AppWindow(uint pid, string windowClass) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((hwnd, ignored) => {
+            GetWindowThreadProcessId(hwnd, out uint owner);
+            if (owner != pid || WindowClass(hwnd) != windowClass ||
+                !GetClientRect(hwnd, out Rect r) || r.Right < 200 || r.Bottom < 280) return true;
+            found = hwnd;
+            return false;
+        }, IntPtr.Zero);
+        return found;
+    }
 }
 '@
     $hwnd = $runtime.MainWindowHandle
+    $script:NativeWindowClass = [MigrationWindow]::WindowClass($hwnd)
+    Assert ($script:NativeWindowClass.Length -gt 0) 'Captured the actual desktop window class'
     $null = [MigrationWindow]::ShowWindowAsync($hwnd,5)
     if (-not [MigrationWindow]::SetForegroundWindow($hwnd)) {
         [uint32]$owner = 0
@@ -192,8 +214,10 @@ function Assert-TrayStartup([string]$nativeExe) {
             Start-Sleep -Milliseconds 100
             $runtime.Refresh()
             if ($runtime.HasExited) { throw 'The logon runtime exited instead of remaining in the tray.' }
-        } while ($runtime.MainWindowHandle -ne 0 -and [DateTime]::UtcNow -lt $deadline)
-        Assert ($runtime.MainWindowHandle -eq 0) 'A ready logon runtime keeps its main window hidden'
+            $window = [MigrationWindow]::AppWindow($runtime.Id,$script:NativeWindowClass)
+            $hidden = $window -ne [IntPtr]::Zero -and -not [MigrationWindow]::IsWindowVisible($window)
+        } while (-not $hidden -and [DateTime]::UtcNow -lt $deadline)
+        Assert $hidden "A ready logon runtime keeps its main window hidden (class=$script:NativeWindowClass, handle=$window)"
     } finally {
         Stop-ExactProcess $nativeExe
         $ready.Dispose()

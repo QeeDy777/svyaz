@@ -3912,6 +3912,7 @@ dependencies = [
  "chrono",
  "eframe",
  "image",
+ "raw-window-handle",
  "rfd",
  "serde_json",
  "svyaz-connection",
