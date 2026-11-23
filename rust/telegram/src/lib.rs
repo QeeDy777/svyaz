@@ -8,5 +8,5 @@ mod transport;
 mod transport_h2;
 
 pub use config::{ensure_secret, proxy_url, proxy_url_at, validate};
-pub use runner::{EngineState, Runner};
+pub use runner::{EngineState, ProbeReply, Runner};
 pub const VERSION: &str = "1.11.4";

@@ -50,6 +50,62 @@ fn brand() -> io::Result<egui::IconData> {
         height,
     })
 }
+// Draw the ASF mark in logical points, matching assets/asf-mark.svg at every DPI.
+fn brand_mark(ui: &mut Ui) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(30.), egui::Sense::hover());
+    let painter = ui.painter();
+    painter.rect_filled(rect, 8., AMBER);
+    let skew = (-17_f32).to_radians().tan();
+    for (x, height) in [(8.5, 12.), (13.5, 19.), (18.5, 8.)] {
+        let half = height / 2.;
+        let points = [(x, -half), (x + 3., -half), (x + 3., half), (x, half)]
+            .map(|(x, y)| rect.min + egui::vec2(x + y * skew, 15. + y));
+        painter.add(egui::Shape::convex_polygon(
+            points.to_vec(),
+            Color32::from_rgb(56, 35, 21),
+            Stroke::NONE,
+        ));
+    }
+}
+
+fn caption_button(ui: &mut Ui, close: bool) -> bool {
+    let label = if close {
+        "Закрыть в трей"
+    } else {
+        "Свернуть"
+    };
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(30.), egui::Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+    });
+    let p = ui.painter();
+    if response.hovered() || response.has_focus() {
+        p.rect_filled(
+            rect,
+            7.,
+            if close {
+                Color32::from_rgb(110, 48, 48)
+            } else {
+                CARD
+            },
+        );
+    }
+    if response.has_focus() {
+        p.rect_stroke(rect, 7., (1., AMBER), egui::StrokeKind::Inside);
+    }
+    let c = rect.center();
+    let stroke = Stroke::new(1.5_f32, INK);
+    if close {
+        for y in [-4.5, 4.5] {
+            let d = egui::vec2(4.5, y);
+            p.line_segment([c - d, c + d], stroke);
+        }
+    } else {
+        p.line_segment([c + egui::vec2(-5., 3.), c + egui::vec2(5., 3.)], stroke);
+    }
+    response.on_hover_text(label).clicked()
+}
+
 fn configure(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     if let Some(directory) = std::env::var_os("WINDIR") {
@@ -80,6 +136,20 @@ fn configure(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
     ctx.set_theme(egui::ThemePreference::Dark);
     let mut s = (*ctx.style()).clone();
+    // Honor the Windows "Animation effects" setting without polling it on each frame.
+    let mut animations = 1_i32;
+    unsafe {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            SPI_GETCLIENTAREAANIMATION, SystemParametersInfoW,
+        };
+        SystemParametersInfoW(
+            SPI_GETCLIENTAREAANIMATION,
+            0,
+            (&mut animations as *mut i32).cast(),
+            0,
+        );
+    }
+    s.animation_time = if animations != 0 { 0.14 } else { 0. };
     s.visuals = egui::Visuals::dark();
     s.visuals.override_text_color = Some(INK);
     s.visuals.window_fill = CARD;
@@ -95,9 +165,9 @@ fn configure(ctx: &egui::Context) {
     s.visuals.hyperlink_color = AMBER;
     s.spacing.item_spacing = Vec2::new(8.0, 8.0);
     s.spacing.button_padding = Vec2::new(12.0, 7.0);
-    s.spacing.scroll.floating = false;
-    s.spacing.scroll.bar_width = 7.0;
-    s.spacing.scroll.bar_inner_margin = 14.0;
+    s.spacing.scroll.floating = true;
+    s.spacing.scroll.bar_width = 4.0;
+    s.spacing.scroll.bar_inner_margin = 10.0;
     s.spacing.scroll.bar_outer_margin = 0.0;
     s.visuals.widgets.noninteractive.fg_stroke.color = INK;
     s.text_styles
@@ -264,14 +334,22 @@ fn action(ui: &mut Ui, text: &str, primary: bool) -> bool {
     response.clicked()
 }
 
+fn transition(ui: &Ui, id: egui::Id, active: bool) -> f32 {
+    if ui.style().animation_time == 0. {
+        return if active { 1. } else { 0. };
+    }
+    ui.ctx().animate_bool_responsive(id, active)
+}
+
 fn navigation(ui: &mut Ui, tab: Tab, label: &str, selected: bool) -> egui::Response {
     let (rect, response) =
         ui.allocate_exact_size(Vec2::new(ui.available_width(), 49.), egui::Sense::click());
     response.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), selected, label)
     });
+    let emphasis = transition(ui, response.id.with("tab"), selected);
     let p = ui.painter();
-    let fg = if selected { AMBER } else { MUTED };
+    let fg = MUTED.lerp_to_gamma(AMBER, emphasis);
     if selected || response.hovered() || response.has_focus() {
         p.rect_filled(rect, 8., Color32::from_rgb(37, 41, 44));
     }
@@ -341,11 +419,11 @@ fn navigation(ui: &mut Ui, tab: Tab, label: &str, selected: bool) -> egui::Respo
         egui::FontId::proportional(12.),
         fg,
     );
-    if selected {
+    if emphasis > 0. {
         p.rect_filled(
             egui::Rect::from_center_size(
                 egui::pos2(rect.center().x, rect.top() + 1.),
-                Vec2::new(29., 2.),
+                Vec2::new(29. * emphasis, 2.),
             ),
             1.,
             AMBER,
@@ -374,15 +452,6 @@ fn initial_client_size() -> [f32; 2] {
     [424., height]
 }
 
-fn service_badge(ui: &mut Ui, name: &str, color: Color32, detail: &str) {
-    // This row uses a right-to-left layout; allocate the caption before its dot.
-    ui.label(RichText::new(name).size(11.).color(MUTED))
-        .on_hover_text(detail);
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(6., 10.), egui::Sense::hover());
-    ui.painter().circle_stroke(rect.center(), 2.5, (1., color));
-    response.on_hover_text(detail);
-}
-
 pub(super) fn show(
     install: PathBuf,
     data: PathBuf,
@@ -399,7 +468,8 @@ pub(super) fn show(
             .with_inner_size(initial_client_size())
             .with_resizable(false)
             .with_maximize_button(false)
-            .with_icon(icon.clone()),
+            .with_decorations(false)
+            .with_icon(icon),
         persist_window: false,
         ..Default::default()
     };
@@ -409,24 +479,20 @@ pub(super) fn show(
         Box::new(move |cc| {
             let ctx = &cc.egui_ctx;
             configure(ctx);
-            let texture = ctx.load_texture(
-                "ASF Control",
-                egui::ColorImage::from_rgba_unmultiplied(
-                    [icon.width as usize, icon.height as usize],
-                    &icon.rgba,
-                ),
-                egui::TextureOptions::LINEAR,
-            );
             let RawWindowHandle::Win32(handle) = cc.window_handle()?.as_raw() else {
                 return Err(io::Error::other("Не найдено окно Windows.").into());
             };
             let window = handle.hwnd.get() as HWND;
+            let native_icons = super::window_icons::WindowIcons::install(window)
+                .inspect_err(|e| super::worker::log(&data, &format!("Системная иконка: {e}")))
+                .ok();
             let tray = Tray::new(ctx, window)?;
             let worker = Worker::spawn(install.clone(), data.clone(), ctx.clone());
             Ok(Box::new(Desktop {
                 worker,
                 tray,
-                logo: texture,
+                _native_icons: native_icons,
+                chrome: super::window_chrome::WindowChrome::attach(window, ctx)?,
                 install,
                 data,
                 tab: Tab::Connection,
@@ -442,6 +508,7 @@ pub(super) fn show(
                 connection_busy: false,
                 tg_busy: false,
                 tg_quality: VecDeque::new(),
+                tg_checking: false,
                 tg_started: None,
                 network_notice_until: None,
                 snap: None,
@@ -468,6 +535,7 @@ pub(super) fn show(
                 voice: String::new(),
                 journal: String::new(),
                 journal_meta: None,
+                journal_last_read: None,
                 notes: false,
             }))
         }),
@@ -483,7 +551,8 @@ pub(super) fn show(
 struct Desktop {
     worker: Worker,
     tray: Tray,
-    logo: egui::TextureHandle,
+    _native_icons: Option<super::window_icons::WindowIcons>,
+    chrome: super::window_chrome::WindowChrome,
     install: PathBuf,
     data: PathBuf,
     tab: Tab,
@@ -499,6 +568,7 @@ struct Desktop {
     connection_busy: bool,
     tg_busy: bool,
     tg_quality: VecDeque<Option<u64>>,
+    tg_checking: bool,
     tg_started: Option<std::time::Instant>,
     network_notice_until: Option<std::time::Instant>,
     snap: Option<Box<Snapshot>>,
@@ -524,6 +594,7 @@ struct Desktop {
     manual: Option<String>,
     voice: String,
     journal: String,
+    journal_last_read: Option<std::time::Instant>,
     journal_meta: Option<(u64, Option<std::time::SystemTime>)>,
     notes: bool,
 }
@@ -693,12 +764,14 @@ impl Desktop {
                     self.show_window(ctx);
                 }
                 Event::Notice(s) => {
-                    if !self.visible {
+                    if !self.visible || ctx.input(|i| i.viewport().minimized == Some(true)) {
                         self.tray.notify("Связь", &s);
                     }
                     self.status = s;
                 }
-                Event::TelegramProbe(result) => {
+                Event::TelegramChecking(checking) => self.tg_checking = checking,
+                Event::TelegramProbe(result, detail) => {
+                    self.tg_status = detail;
                     if self.tg_quality.len() == 5 {
                         self.tg_quality.pop_front();
                     }
@@ -837,10 +910,8 @@ impl eframe::App for Desktop {
             ctx.send_viewport_cmd(ViewportCommand::CancelClose);
             self.hide(ctx);
         }
-        if self.visible && ctx.input(|i| i.viewport().minimized == Some(true)) {
-            self.hide(ctx);
-        }
-        egui::TopBottomPanel::top("brand")
+        let mut drag_right = 0.;
+        let header = egui::TopBottomPanel::top("brand")
             .frame(
                 Frame::default()
                     .fill(BG)
@@ -848,54 +919,27 @@ impl eframe::App for Desktop {
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.image((self.logo.id(), Vec2::splat(30.0)));
+                    brand_mark(ui);
                     ui.label(RichText::new("Связь").font(semibold(19.)).color(INK));
                     ui.label(RichText::new(running().to_string()).color(MUTED).size(12.));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 4.;
-                        let route =
-                            self.snap.as_ref().is_some_and(|s| s.discord) || self.connection_busy;
-                        let telegram = self
-                            .snap
-                            .as_ref()
-                            .is_some_and(|s| s.telegram || s.telegram_wanted)
-                            || self.tg_busy;
-                        if telegram {
-                            let verified = self.tg_quality.back().is_some_and(Option::is_some);
-                            service_badge(
-                                ui,
-                                "Telegram",
-                                if verified { GREEN } else { AMBER },
-                                &self.tg_status,
-                            );
+                        if caption_button(ui, true) {
+                            self.hide(ctx);
                         }
-                        if route {
-                            if telegram {
-                                ui.add_space(5.);
-                            }
-                            let name = if self.services.discord {
-                                "Discord"
-                            } else {
-                                "YouTube"
-                            };
-                            let verified = self.snap.as_ref().is_some_and(|s| s.verified);
-                            service_badge(
-                                ui,
-                                name,
-                                if verified { GREEN } else { AMBER },
-                                &self.status,
-                            );
+                        if caption_button(ui, false) {
+                            ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
                         }
-                        if !route && !telegram {
-                            if self.error.is_empty() {
-                                service_badge(ui, "Отключено", MUTED, "Сервисы выключены");
-                            } else {
-                                service_badge(ui, "Сбой", RED, &self.error);
-                            }
-                        }
+                        ui.add_space(4.);
+                        drag_right = ui.available_rect_before_wrap().right();
                     });
                 });
             });
+        let mut drag_rect = header.response.rect;
+        drag_rect.max.x = drag_right;
+        self.chrome
+            .set_drag_bounds(drag_rect, ctx.pixels_per_point());
+
         egui::TopBottomPanel::bottom("navigation")
             .frame(
                 Frame::default()
@@ -922,7 +966,7 @@ impl eframe::App for Desktop {
             .frame(
                 Frame::default()
                     .fill(BG)
-                    .inner_margin(Margin::symmetric(16, 14)),
+                    .inner_margin(Margin::symmetric(18, 16)),
             )
             .show(ctx, |ui| {
                 let tab = self.tab;

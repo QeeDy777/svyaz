@@ -212,6 +212,7 @@ pub struct ConvenienceState {
     pub network_strategies: IndexMap<String, String>,
     pub services: Option<ServiceSelection>,
     pub quiet_notifications: bool,
+    pub connection_sounds: bool,
     pub last_seen_app_version: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -229,6 +230,7 @@ impl Default for ConvenienceState {
             network_strategies: IndexMap::new(),
             services: None,
             quiet_notifications: true,
+            connection_sounds: true,
             last_seen_app_version: None,
             extra: Map::new(),
         }
