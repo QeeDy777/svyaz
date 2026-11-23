@@ -1,4 +1,5 @@
 use crate::{config, fake_tls, protocol, runtime_config::Config, transport};
+use futures_util::{StreamExt, stream::FuturesUnordered};
 use socket2::{Domain, Socket, Type};
 use std::{
     io,
@@ -28,6 +29,12 @@ pub struct EngineState {
 #[derive(Default)]
 pub struct Runner {
     service: Option<Service>,
+}
+
+#[derive(Debug)]
+pub struct ProbeReply {
+    pub dc: u16,
+    pub elapsed_ms: u64,
 }
 
 struct Service {
@@ -175,6 +182,46 @@ async fn accept(
     }
 }
 
+fn probe_datacenters(cfg: &Config) -> Vec<u16> {
+    let mut choices: Vec<_> = cfg
+        .dc_redirects
+        .keys()
+        .copied()
+        .filter(|dc| (1..=if cfg.force_test_dc { 3 } else { 5 }).contains(dc))
+        .collect();
+    if choices.is_empty() {
+        choices.extend(if cfg.force_test_dc { [2, 1] } else { [2, 4] });
+    }
+    choices.sort_by_key(|dc| *dc != 2);
+    choices.truncate(2);
+    choices
+}
+
+async fn probe_dc(cfg: &Config, dc: u16) -> io::Result<ProbeReply> {
+    let start = Instant::now();
+    let mut stream = TcpStream::connect((Ipv4Addr::LOCALHOST, cfg.port))
+        .await
+        .map_err(|e| io::Error::new(e.kind(), format!("Локальный прокси недоступен: {e}")))?;
+    if cfg.proxy_protocol {
+        stream.write_all(b"PROXY UNKNOWN\r\n").await?;
+        stream.flush().await?;
+    }
+    let stream = fake_tls::client(stream, cfg.fake_tls_domain.as_deref(), &cfg.secret).await?;
+    protocol::probe(stream, &cfg.secret, dc as i16)
+        .await
+        .map_err(|e| {
+            if e.kind() == io::ErrorKind::UnexpectedEof {
+                io::Error::new(e.kind(), "Соединение закрылось до ответа resPQ.")
+            } else {
+                e
+            }
+        })?;
+    Ok(ProbeReply {
+        dc,
+        elapsed_ms: start.elapsed().as_millis() as u64,
+    })
+}
+
 impl Runner {
     pub fn status(&self) -> io::Result<EngineState> {
         let alive = self.service.as_ref().is_some_and(|s| !s.task.is_finished());
@@ -220,38 +267,50 @@ impl Runner {
         });
         Ok(())
     }
-    pub fn probe(&self, cancel: &AtomicBool) -> io::Result<Option<u64>> {
+    pub fn probe(&self, cancel: &AtomicBool) -> io::Result<ProbeReply> {
         cancelled(cancel)?;
-        let Some(service) = self.service.as_ref().filter(|s| !s.task.is_finished()) else {
-            return Ok(None);
-        };
+        let service = self
+            .service
+            .as_ref()
+            .filter(|s| !s.task.is_finished())
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotConnected,
+                    "Локальный прокси Telegram остановлен.",
+                )
+            })?;
         let cfg = &service.config;
-        let start = Instant::now();
-        let dc = if cfg.dc_redirects.contains_key(&2) {
-            2
-        } else {
-            cfg.dc_redirects.keys().next().copied().unwrap_or(2)
-        };
-        let exchange = async {
-            let mut stream = TcpStream::connect((Ipv4Addr::LOCALHOST, cfg.port)).await?;
-            if cfg.proxy_protocol {
-                stream.write_all(b"PROXY UNKNOWN\r\n").await?;
-                stream.flush().await?;
-            }
-            let stream =
-                fake_tls::client(stream, cfg.fake_tls_domain.as_deref(), &cfg.secret).await?;
-            protocol::probe(
-                stream,
-                &cfg.secret,
-                i16::try_from(dc).map_err(io::Error::other)?,
-            )
-            .await
-        };
         service.rt.block_on(async {
-            tokio::select! {
-                result = tokio::time::timeout(Duration::from_secs(12), exchange) => {
-                    Ok(matches!(result, Ok(Ok(()))).then(|| start.elapsed().as_millis() as u64))
+            let mut pending = FuturesUnordered::new();
+            for (index, dc) in probe_datacenters(cfg).into_iter().enumerate() {
+                pending.push(async move {
+                    // Let a working primary answer first and give cold route pools time to fill.
+                    if index > 0 {
+                        tokio::time::sleep(Duration::from_millis(1200)).await;
+                    }
+                    let result = tokio::time::timeout(Duration::from_secs(20), probe_dc(cfg, dc))
+                        .await
+                        .unwrap_or_else(|_| {
+                            Err(io::Error::new(
+                                io::ErrorKind::TimedOut,
+                                "Нет ответа за 20 с.",
+                            ))
+                        });
+                    (dc, result)
+                });
+            }
+            let exchanges = async {
+                let mut errors = Vec::new();
+                while let Some((dc, result)) = pending.next().await {
+                    match result {
+                        Ok(reply) => return Ok(reply),
+                        Err(e) => errors.push(format!("DC{dc}: {e}")),
+                    }
                 }
+                Err(io::Error::other(errors.join(" · ")))
+            };
+            tokio::select! {
+                result = exchanges => result,
                 _ = async {
                     while !cancel.load(Ordering::Acquire) {
                         tokio::time::sleep(Duration::from_millis(80)).await;
@@ -280,6 +339,42 @@ mod tests {
     use super::*;
     use crate::protocol::tests::respond_to_probe;
     #[test]
+    fn another_configured_dc_can_confirm_while_the_primary_stalls() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let listener = rt
+            .block_on(TcpListener::bind((Ipv4Addr::LOCALHOST, 0)))
+            .unwrap();
+        let cfg = Arc::new(
+            Config::parse(
+                &serde_json::json!({
+                    "port":listener.local_addr().unwrap().port(),"secret":"4e".repeat(16),
+                    "dc_ip":["2:127.0.0.1","4:127.0.0.1"]
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        );
+        let key = cfg.secret;
+        let task = rt.spawn(async move {
+            let (_silent_primary, _) = listener.accept().await?;
+            let (secondary, _) = listener.accept().await?;
+            protocol::tests::respond_to_probe_for_dc(secondary, Some(&key), 4, true).await;
+            Ok(())
+        });
+        let runner = Runner {
+            service: Some(Service {
+                rt,
+                task,
+                config: cfg,
+            }),
+        };
+        assert_eq!(runner.probe(&AtomicBool::new(false)).unwrap().dc, 4);
+    }
+
+    #[test]
     fn local_probe_works_with_proxy_header_and_authenticated_tls() {
         for domain in ["", "app.local"] {
             for proxy_protocol in [true, false] {
@@ -293,6 +388,7 @@ mod tests {
                 let cfg = serde_json::json!({
                     "port": listener.local_addr().unwrap().port(),
                     "secret":"2a".repeat(16),
+                    "dc_ip":["2:127.0.0.1"],
                     "fake_tls_domain": domain,
                     "proxy_protocol": proxy_protocol,
                 });
@@ -319,8 +415,14 @@ mod tests {
                     }),
                 };
                 let active = AtomicBool::new(false);
-                assert!(runner.probe(&active).unwrap().is_some());
-                assert!(runner.probe(&active).unwrap().is_none());
+                assert_eq!(runner.probe(&active).unwrap().dc, 2);
+                assert!(
+                    runner
+                        .probe(&active)
+                        .unwrap_err()
+                        .to_string()
+                        .contains("nonce")
+                );
                 assert!(runner.service.as_ref().unwrap().task.is_finished());
             }
         }

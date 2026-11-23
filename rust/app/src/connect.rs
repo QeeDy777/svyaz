@@ -1,4 +1,4 @@
-use super::runner::WindowsRunner;
+use super::{recovery::different_networks, runner::WindowsRunner};
 use std::{
     env, io,
     path::Path,
@@ -49,7 +49,7 @@ pub fn run(
     voice_address: &str,
     cancel: &AtomicBool,
     mut progress: impl FnMut(Event),
-) -> Result<(WindowsRunner, String), String> {
+) -> Result<(WindowsRunner, String, Option<String>), String> {
     let settings_file = data.join(SETTINGS_FILE);
     let prefs_file = data.join(PREFERENCES_FILE);
     let package_dir = data.join("Packages");
@@ -192,7 +192,8 @@ pub fn run(
             continue;
         };
         check_cancel(cancel).map_err(message)?;
-        if network != network_identity() {
+        let current = network_identity();
+        if different_networks(network.as_deref(), current.as_deref()) {
             runner.stop()?;
             return Err("Сеть изменилась во время проверки. Переподключитесь, чтобы проверить новый маршрут.".into());
         }
@@ -203,7 +204,7 @@ pub fn run(
         state.pending_package = None;
         state.last_strategy = Some(winner.clone());
         state.save(&settings_file).map_err(message)?;
-        if prefs.remember_network(network.as_deref(), network.as_deref(), &winner) {
+        if prefs.remember_network(network.as_deref(), current.as_deref(), &winner) {
             if let Err(error) = prefs.save(&prefs_file) {
                 progress(Event::Status(format!(
                     "Не удалось сохранить профиль сети: {error}"
@@ -218,10 +219,13 @@ pub fn run(
                 "Новый пакет не прошёл проверку. Используется предыдущий.".into(),
             ));
         }
-        return Ok((runner, winner));
+        return Ok((runner, winner, current.or(network)));
     }
     check_cancel(cancel).map_err(message)?;
-    if !super::runner::network_available() || network != network_identity() {
+    if !super::runner::network_available() {
+        return Err("Нет сетевого подключения. Ожидаем подключения.".into());
+    }
+    if different_networks(network.as_deref(), network_identity().as_deref()) {
         return Err("Сеть изменилась во время подбора. Ожидаем подключения.".into());
     }
     progress(Event::ManualRetryRequired);

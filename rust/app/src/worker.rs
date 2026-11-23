@@ -1,3 +1,4 @@
+use super::sound::{Change, Connections};
 use super::{Restart, connect, reset, runner::WindowsRunner, running};
 use eframe::egui;
 use std::{
@@ -46,6 +47,7 @@ pub enum Command {
     SaveServices(ServiceSelection, bool),
     SaveGame(GameFilterSettings),
     AutoUpdate(bool),
+    ConnectionSounds(bool),
     Autostart(bool),
     MarkReleaseNotesSeen,
     CheckApp,
@@ -61,7 +63,9 @@ pub enum Event {
     Status(String),
     Checks(String, Outcome),
     Telegram(String),
-    TelegramProbe(Option<u64>),
+    TelegramChecking(bool),
+    TelegramProbe(Option<u64>, String),
+    NetworkChanged { route: bool, telegram: bool },
     Error(String),
     ResetConfirm(Vec<(String, String)>),
     Notice(String),
@@ -149,10 +153,10 @@ struct Engine {
     pending: Option<InstalledApp>,
     autostart: bool,
     last_result: Option<ProbeResult>,
-    network: Option<String>,
+    network: super::recovery::NetworkProfile,
     recovery: super::recovery::Recovery,
     tg_recovery: super::recovery::Recovery,
-    last_tick: Instant,
+    connections: Connections,
 }
 impl Engine {
     fn new(install: PathBuf, data: PathBuf, tx: Sender<Event>, ctx: egui::Context) -> Self {
@@ -169,10 +173,10 @@ impl Engine {
             pending: None,
             autostart: false,
             last_result: None,
-            network: None,
+            network: Default::default(),
             recovery: Default::default(),
             tg_recovery: Default::default(),
-            last_tick: Instant::now(),
+            connections: Connections::default(),
         }
     }
     fn send(&self, e: Event) {
@@ -193,7 +197,7 @@ impl Engine {
     fn updater(&self) -> Updater {
         Updater::new(&self.install, &self.data, running())
     }
-    fn snapshot(&self) -> io::Result<()> {
+    fn snapshot(&mut self, change: Change) -> io::Result<()> {
         let state = self.state()?;
         let prefs = self.prefs()?;
         let strategies = state
@@ -206,14 +210,19 @@ impl Engine {
             .into_iter()
             .map(|s| s.name)
             .collect();
+        let discord = self.discord.as_ref().is_some_and(|r| r.is_running());
+        let telegram = self.tg.status()?.alive;
+        let cue = self.connections.update(discord, telegram, change);
+        if let Some(cue) = cue.filter(|_| prefs.connection_sounds) {
+            cue.play();
+        }
         self.send(Event::State(Box::new(Snapshot {
             state,
             prefs,
             autostart: self.autostart,
-            discord: self.discord.as_ref().is_some_and(|r| r.is_running()),
-            verified: self.discord.as_ref().is_some_and(|r| r.is_running())
-                && self.last_result.as_ref().is_some_and(ProbeResult::success),
-            telegram: self.tg.status()?.alive,
+            discord,
+            verified: discord && self.last_result.as_ref().is_some_and(ProbeResult::success),
+            telegram,
             telegram_wanted: self.tg_recovery.wanted,
             previous: self.previous.clone(),
             pending: self.pending.clone(),
@@ -285,19 +294,29 @@ impl Engine {
         }
         self.send(Event::Telegram("Локальный прокси запущен.".into()));
         self.tg_recovery.succeeded();
+        self.snapshot(Change::Pending)?;
         self.check_tg(cancel)
     }
     fn check_tg(&mut self, cancel: &AtomicBool) -> io::Result<()> {
-        let result = self.tg.probe(cancel)?;
+        self.send(Event::TelegramChecking(true));
+        let result = self.tg.probe(cancel);
+        self.send(Event::TelegramChecking(false));
         guard(cancel)?;
         if !self.tg.status()?.alive {
             return Err(io::Error::other("Движок Telegram остановился."));
         }
-        self.send(Event::TelegramProbe(result));
-        self.send(Event::Telegram(result.map_or(
-            "Работает локально · сервер не подтвердил проверку".into(),
-            |ms| format!("Сервер ответил за {ms} мс"),
-        )));
+        let (latency, detail) = match result {
+            Ok(reply) => (
+                Some(reply.elapsed_ms),
+                format!(
+                    "DC{} ответил на запрос MTProto за {} мс.",
+                    reply.dc, reply.elapsed_ms
+                ),
+            ),
+            Err(e) => (None, format!("Ответ MTProto не подтверждён. {e}")),
+        };
+        log(&self.data, &format!("Telegram · {detail}"));
+        self.send(Event::TelegramProbe(latency, detail));
         Ok(())
     }
     fn connect(
@@ -341,7 +360,8 @@ impl Engine {
             ctx.request_repaint();
         });
         match result {
-            Ok((runner, name)) => {
+            Ok((runner, name, network)) => {
+                self.network = super::recovery::NetworkProfile::new(network);
                 self.discord = Some(runner);
                 self.started = Some(Instant::now());
                 self.last_result = last;
@@ -399,7 +419,29 @@ impl Engine {
                     continue;
                 }
             };
-            match self.handle(cmd, &cancel) {
+            let connection_command = matches!(
+                cmd,
+                Command::Connect { .. }
+                    | Command::Telegram
+                    | Command::Stop
+                    | Command::StopTelegram
+                    | Command::Reset(_)
+            );
+            let stopping = matches!(
+                cmd,
+                Command::Stop | Command::StopTelegram | Command::Telegram
+            );
+            let result = self.handle(cmd, &cancel);
+            let change = if cancel.load(Ordering::Acquire) {
+                Change::Pending
+            } else if connection_command && result.is_err() {
+                Change::Failed
+            } else if stopping {
+                Change::Stop
+            } else {
+                Change::Observe
+            };
+            match result {
                 Ok(Some(restart)) => {
                     self.discord.take();
                     let _ = self.tg.stop();
@@ -415,7 +457,7 @@ impl Engine {
                 }
                 _ => {}
             }
-            if let Err(e) = self.snapshot() {
+            if let Err(e) = self.snapshot(change) {
                 self.send(Event::Error(e.to_string()));
             }
             self.send(Event::Finished);
@@ -424,24 +466,22 @@ impl Engine {
     fn tick(&mut self, cancel: &AtomicBool) -> io::Result<()> {
         let now = Instant::now();
         let net = svyaz_connection::network_identity();
-        let resumed = now.duration_since(self.last_tick) > Duration::from_secs(60);
-        self.last_tick = now;
         let online = super::runner::network_available();
         let tg_alive = self.tg.status()?.alive;
-        if net != self.network || resumed {
-            self.network = net;
+        if self.network.changed(net) {
+            let route = self.discord.as_ref().is_some_and(|r| r.is_running());
             self.last_result = None;
-            if self.discord.is_some() {
-                self.status("Сеть изменилась. Проверим при следующем подключении.");
-            } else {
-                self.recovery.network_changed(now);
-            }
-            if !tg_alive {
-                self.tg_recovery.network_changed(now);
-            } else {
-                self.send(Event::Telegram(
-                    "Сеть изменилась · локальный прокси работает".into(),
-                ));
+            self.recovery.network_changed(now, route);
+            self.tg_recovery.network_changed(now, tg_alive);
+            if route || tg_alive {
+                log(
+                    &self.data,
+                    "Сеть изменилась. Проверка при следующем подключении.",
+                );
+                self.send(Event::NetworkChanged {
+                    route,
+                    telegram: tg_alive,
+                });
             }
         }
         if self.discord.as_ref().is_some_and(|r| !r.is_running()) {
@@ -473,7 +513,7 @@ impl Engine {
                 log(&self.data, &e.to_string());
             }
         }
-        self.snapshot()?;
+        self.snapshot(Change::Observe)?;
         if now >= self.next_updates && self.state()?.auto_update {
             self.next_updates = now + Duration::from_secs(6 * 3600);
             for result in [
@@ -484,7 +524,7 @@ impl Engine {
                     log(&self.data, &e.to_string());
                 }
             }
-            self.snapshot()?;
+            self.snapshot(Change::Observe)?;
         }
         Ok(())
     }
@@ -530,7 +570,8 @@ impl Engine {
         match cmd {
             Command::Quit => return Ok(Some(None)),
             Command::Initialize(args) => {
-                self.network = svyaz_connection::network_identity();
+                self.network =
+                    super::recovery::NetworkProfile::new(svyaz_connection::network_identity());
                 let updater = self.updater();
                 self.pending = updater
                     .read(State::Pending)?
@@ -557,7 +598,7 @@ impl Engine {
                         log(&self.data, &e.to_string());
                     }
                 }
-                self.snapshot()?;
+                self.snapshot(Change::Observe)?;
                 let has = |key: &str| args.iter().any(|s| s == key);
                 if s.telegram.start_with_app
                     || has("--resume-telegram")
@@ -650,6 +691,10 @@ impl Engine {
                 s.auto_update = enable;
                 s.save(&self.data.join(SETTINGS_FILE))?;
                 self.next_updates = Instant::now();
+            }
+            Command::ConnectionSounds(enable) => {
+                prefs.connection_sounds = enable;
+                prefs.save(&self.data.join(PREFERENCES_FILE))?;
             }
             Command::MarkReleaseNotesSeen => {
                 prefs.last_seen_app_version = Some(running().to_string());

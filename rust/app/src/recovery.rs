@@ -1,6 +1,48 @@
 // Mirrors the 0.13.3 policy: retry only a wanted connection; notify once per outage.
 use std::time::{Duration, Instant};
 
+/// NLM can temporarily return no profile or a short-lived set of adapter GUIDs.
+#[derive(Default)]
+pub(super) struct NetworkProfile {
+    confirmed: Option<String>,
+    candidate: Option<String>,
+}
+
+impl NetworkProfile {
+    pub(super) fn new(confirmed: Option<String>) -> Self {
+        Self {
+            confirmed,
+            candidate: None,
+        }
+    }
+
+    pub(super) fn changed(&mut self, sample: Option<String>) -> bool {
+        let Some(id) = sample else {
+            self.candidate = None;
+            return false;
+        };
+        if self.confirmed.is_none() {
+            self.confirmed = Some(id);
+            return false;
+        }
+        if self.confirmed.as_ref() == Some(&id) {
+            self.candidate = None;
+            return false;
+        }
+        if self.candidate.as_ref() == Some(&id) {
+            self.confirmed = Some(id);
+            self.candidate = None;
+            return true;
+        }
+        self.candidate = Some(id);
+        false
+    }
+}
+
+pub(super) fn different_networks(first: Option<&str>, second: Option<&str>) -> bool {
+    matches!((first, second), (Some(first), Some(second)) if first != second)
+}
+
 #[derive(Default)]
 pub(super) struct Recovery {
     pub(super) wanted: bool,
@@ -31,8 +73,8 @@ impl Recovery {
             self.due.get_or_insert(now + Duration::from_secs(10));
         }
     }
-    pub(super) fn network_changed(&mut self, now: Instant) {
-        if self.wanted {
+    pub(super) fn network_changed(&mut self, now: Instant, running: bool) {
+        if self.wanted && !running {
             self.failed(now);
             self.due = Some(now + Duration::from_secs(10));
         }
@@ -63,13 +105,58 @@ impl Recovery {
 mod tests {
     use super::*;
     #[test]
+    fn missing_samples_and_an_unchanged_profile_after_a_long_operation_stay_quiet() {
+        let mut profile = NetworkProfile::default();
+        for id in [
+            None,
+            Some("wifi"),
+            None,
+            Some("wifi"),
+            Some("vpn"),
+            Some("wifi"),
+            Some("wifi"),
+        ] {
+            assert!(!profile.changed(id.map(str::to_owned)));
+        }
+    }
+
+    #[test]
+    fn a_confirmed_network_change_is_reported_once_in_each_direction() {
+        let mut profile = NetworkProfile::new(Some("wifi".into()));
+        let events: Vec<_> = ["mobile", "mobile", "mobile", "wifi", "wifi", "wifi"]
+            .map(|id| profile.changed(Some(id.into())))
+            .into();
+        assert_eq!(events, [false, true, false, false, true, false]);
+    }
+
+    #[test]
+    fn finishing_a_connection_replaces_the_previous_poll_baseline() {
+        let mut profile = NetworkProfile::new(Some("mobile".into()));
+        assert!(!profile.changed(Some("mobile".into())));
+        assert!(!different_networks(Some("mobile"), None));
+        assert!(!different_networks(None, Some("wifi")));
+        assert!(!different_networks(Some("wifi"), Some("wifi")));
+        assert!(different_networks(Some("wifi"), Some("mobile")));
+    }
+
+    #[test]
+    fn a_changed_profile_does_not_schedule_a_probe_or_restart_of_a_running_service() {
+        let mut recovery = Recovery::default();
+        let now = Instant::now();
+        recovery.enable();
+        recovery.succeeded();
+        recovery.network_changed(now, true);
+        assert!(!recovery.begin(now + Duration::from_secs(600), true));
+        assert!(!recovery.notify(now + Duration::from_secs(600), true));
+    }
+    #[test]
     fn retries_and_notifications_cannot_restart_a_stopped_connection() {
         let mut recovery = Recovery::default();
         let now = Instant::now();
         let at = |seconds| now + Duration::from_secs(seconds);
         recovery.enable();
         recovery.failed(now);
-        recovery.network_changed(now);
+        recovery.network_changed(now, false);
         assert!(!recovery.begin(at(9), true));
         assert!(!recovery.begin(at(10), false));
         assert!(recovery.begin(at(10), true));
@@ -85,7 +172,7 @@ mod tests {
         recovery.succeeded();
         assert!(!recovery.notify(at(400), true));
         recovery.stop();
-        recovery.network_changed(at(500));
+        recovery.network_changed(at(500), false);
         assert!(!recovery.begin(at(999), true));
     }
 }

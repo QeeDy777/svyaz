@@ -210,31 +210,74 @@ pub(crate) async fn probe(
     stream.read_exact(&mut len).await?;
     incoming.apply_keystream(&mut len);
     let length = u32::from_le_bytes(len) as usize;
-    if !(56..=4096).contains(&length) {
-        return Err(invalid());
+    if !(4..=4096).contains(&length) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Неверная длина ответа MTProto.",
+        ));
     }
     let mut reply = vec![0; length];
     stream.read_exact(&mut reply).await?;
     incoming.apply_keystream(&mut reply);
-    if valid_pq_reply(&reply, &nonce) {
-        Ok(())
-    } else {
-        Err(invalid())
+    if reply.len() < 20 {
+        let code = i32::from_le_bytes(reply[..4].try_into().unwrap());
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Сервер вернул служебный ответ MTProto ({code})."),
+        ));
     }
+    validate_pq_reply(&reply, &nonce)
 }
-fn valid_pq_reply(reply: &[u8], nonce: &[u8; 16]) -> bool {
-    if reply.len() < 56 {
-        return false;
+
+fn validate_pq_reply(reply: &[u8], nonce: &[u8; 16]) -> io::Result<()> {
+    let malformed = || {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Неполный или неверный ответ resPQ.",
+        )
+    };
+    if reply.len() < 56 || reply[..8] != [0; 8] || reply[8] & 1 == 0 {
+        return Err(malformed());
     }
-    let body = u32::from_le_bytes(reply[16..20].try_into().unwrap()) as usize;
-    reply[..8] == [0; 8]
-        && body >= 36
-        && body % 4 == 0
-        && (reply.len() - 20)
-            .checked_sub(body)
-            .is_some_and(|n| n <= 15)
-        && reply[20..24] == 0x05162463u32.to_le_bytes()
-        && reply[24..40] == *nonce
+    let length = u32::from_le_bytes(reply[16..20].try_into().unwrap()) as usize;
+    let payload = reply
+        .get(20..)
+        .and_then(|bytes| bytes.get(..length))
+        .ok_or_else(malformed)?;
+    // Plain MTProto handshakes can also carry protocol-level padding in a padded transport.
+    // The pinned proxy's plain-packet decoder accepts up to 256 trailing bytes.
+    if reply.len() - 20 - length > 256
+        || payload.len() < 48
+        || payload.len() % 4 != 0
+        || payload[..4] != 0x05162463u32.to_le_bytes()
+    {
+        return Err(malformed());
+    }
+    if payload[4..20] != *nonce {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Ответ resPQ относится к другому запросу (nonce).",
+        ));
+    }
+    // resPQ contains a server nonce, a big-endian pq no larger than 64 bits and a vector<long>.
+    let pq_len = usize::from(payload[36]);
+    if !(1..=8).contains(&pq_len) || payload[37..37 + pq_len].iter().all(|&b| b == 0) {
+        return Err(malformed());
+    }
+    let vector = (37 + pq_len).next_multiple_of(4);
+    let fields = payload
+        .get(vector..)
+        .filter(|p| p.len() >= 8)
+        .ok_or_else(malformed)?;
+    let count = u32::from_le_bytes(fields[4..8].try_into().unwrap()) as usize;
+    if fields[..4] != 0x1cb5c415u32.to_le_bytes()
+        || count == 0
+        || count != (fields.len() - 8) / 8
+        || (fields.len() - 8) % 8 != 0
+    {
+        return Err(malformed());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -293,17 +336,31 @@ pub(crate) mod tests {
             assert_eq!(splitter.flush().unwrap(), bytes[..3]);
         }
     }
+    // Wire-format response from core.telegram.org/mtproto/samples-auth_key, including three fingerprints.
+    fn sample_reply() -> [u8; 100] {
+        hex(concat!(
+            "000000000000000001f4ccc26170466a500000006324160551a1143fc7a3666b",
+            "e4be54d6890a02dc63248f6748214eab8a2f4cc876e11974082e9cdb98c80cda",
+            "4b00000015c4b51c0300000085fd64de851d9dd0a5b7f709355fc30b216be86c",
+            "022bb4c3"
+        ))
+    }
     #[test]
-    fn verifies_nonce_and_padding_in_server_response() {
-        let nonce = [42; 16];
-        let mut r = vec![0; 56];
-        r[16..20].copy_from_slice(&36u32.to_le_bytes());
-        r[20..24].copy_from_slice(&0x05162463u32.to_le_bytes());
-        r[24..40].copy_from_slice(&nonce);
-        assert!(valid_pq_reply(&r, &nonce));
-        assert!(!valid_pq_reply(&r, &[21; 16]));
-        r.extend_from_slice(&[0; 16]);
-        assert!(!valid_pq_reply(&r, &nonce));
+    fn verifies_complete_tl_sample_nonce_and_plain_transport_padding() {
+        let mut reply = sample_reply().to_vec();
+        let nonce: [u8; 16] = reply[24..40].try_into().unwrap();
+        validate_pq_reply(&reply, &nonce).unwrap();
+        reply.extend_from_slice(&[0xa5; 256]);
+        validate_pq_reply(&reply, &nonce).unwrap();
+        assert!(validate_pq_reply(&reply, &[1; 16]).is_err());
+        reply.push(0);
+        assert!(validate_pq_reply(&reply, &nonce).is_err());
+        let mut damaged = sample_reply();
+        damaged[72..76].copy_from_slice(&4u32.to_le_bytes());
+        assert!(validate_pq_reply(&damaged, &nonce).is_err());
+        let mut truncated = sample_reply()[..56].to_vec();
+        truncated[16..20].copy_from_slice(&36u32.to_le_bytes());
+        assert!(validate_pq_reply(&truncated, &nonce).is_err());
     }
 
     #[test]
@@ -337,8 +394,17 @@ pub(crate) mod tests {
     }
 
     pub(crate) async fn respond_to_probe(
+        server: impl AsyncRead + AsyncWrite + Unpin,
+        secret: Option<&[u8; 16]>,
+        correct_nonce: bool,
+    ) {
+        respond_to_probe_for_dc(server, secret, 2, correct_nonce).await;
+    }
+
+    pub(crate) async fn respond_to_probe_for_dc(
         mut server: impl AsyncRead + AsyncWrite + Unpin,
         secret: Option<&[u8; 16]>,
+        expected_dc: i16,
         correct_nonce: bool,
     ) {
         let mut header = [0; 64];
@@ -346,7 +412,7 @@ pub(crate) mod tests {
         let (mut incoming, mut outgoing) = ciphers(&header, secret);
         incoming.apply_keystream(&mut header);
         assert_eq!(header[56..60], PADDED);
-        assert_eq!(header[60..62], 2_i16.to_le_bytes());
+        assert_eq!(header[60..62], expected_dc.to_le_bytes());
         let mut len = [0; 4];
         server.read_exact(&mut len).await.unwrap();
         incoming.apply_keystream(&mut len);
@@ -357,14 +423,14 @@ pub(crate) mod tests {
         assert_eq!(payload[..8], [0; 8]);
         assert_eq!(payload[16..20], 20_u32.to_le_bytes());
         assert_eq!(payload[20..24], 0xbe7e8ef1_u32.to_le_bytes());
-        let mut reply = vec![0; 4 + 56];
-        reply[..4].copy_from_slice(&56_u32.to_le_bytes());
-        reply[20..24].copy_from_slice(&36_u32.to_le_bytes());
-        reply[24..28].copy_from_slice(&0x05162463_u32.to_le_bytes());
-        reply[28..44].copy_from_slice(&payload[24..40]);
+        let mut packet = sample_reply().to_vec();
+        packet[24..40].copy_from_slice(&payload[24..40]);
         if !correct_nonce {
-            reply[28] ^= 0xff;
+            packet[24] ^= 0xff;
         }
+        packet.extend_from_slice(&[0xa5; 64]);
+        let mut reply = (packet.len() as u32).to_le_bytes().to_vec();
+        reply.extend_from_slice(&packet);
         outgoing.apply_keystream(&mut reply);
         server.write_all(&reply).await.unwrap();
         server.flush().await.unwrap();

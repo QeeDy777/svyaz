@@ -92,62 +92,6 @@ fn service_row(
     check_row(ui, name, state, &detail);
 }
 
-fn compact_options(ui: &mut Ui, name: &str, add: impl FnOnce(&mut Ui)) {
-    Frame::default()
-        .fill(CARD)
-        .stroke(Stroke::new(1.0_f32, LINE))
-        .corner_radius(16)
-        .inner_margin(Margin::symmetric(12, 6))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            let id = ui.make_persistent_id(name);
-            let mut expanded = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
-            let (row, button) =
-                ui.allocate_exact_size(Vec2::new(ui.available_width(), 42.), egui::Sense::click());
-            if button.clicked() {
-                expanded = !expanded;
-                ui.data_mut(|d| d.insert_temp(id, expanded));
-            }
-            button.widget_info(|| {
-                egui::WidgetInfo::selected(
-                    egui::WidgetType::CollapsingHeader,
-                    ui.is_enabled(),
-                    expanded,
-                    name,
-                )
-            });
-            let painter = ui.painter();
-            painter.rect_filled(row, 4., Color32::from_rgb(38, 40, 43));
-            if button.has_focus() || button.hovered() {
-                painter.rect_stroke(
-                    row,
-                    4.,
-                    Stroke::new(1.0_f32, AMBER),
-                    egui::StrokeKind::Inside,
-                );
-            }
-            painter.text(
-                row.left_center() + egui::vec2(11., 0.),
-                egui::Align2::LEFT_CENTER,
-                name,
-                egui::FontId::proportional(14.),
-                INK,
-            );
-            let center = row.right_center() - egui::vec2(17., 0.);
-            let sign = if expanded { -1. } else { 1. };
-            let points =
-                [(-4., -2.), (0., 2.), (4., -2.)].map(|(x, y)| center + egui::vec2(x, y * sign));
-            painter.add(egui::Shape::line(
-                points.to_vec(),
-                Stroke::new(1.0_f32, INK),
-            ));
-            button.on_hover_cursor(egui::CursorIcon::PointingHand);
-            if expanded {
-                add(ui);
-            }
-        });
-}
-
 fn windows_version() -> Option<String> {
     use winreg::{RegKey, enums::HKEY_LOCAL_MACHINE};
     let key = RegKey::predef(HKEY_LOCAL_MACHINE)
@@ -238,7 +182,7 @@ impl Desktop {
     }
     fn telegram_check(&self) -> (Indicator, String) {
         let active = self.snap.as_ref().is_some_and(|s| s.telegram);
-        if self.tg_busy {
+        if self.tg_checking {
             (
                 Indicator::Checking,
                 "Проверяем ответ MTProto через прокси".into(),
@@ -251,14 +195,8 @@ impl Desktop {
             }
         } else {
             match self.tg_quality.back() {
-                Some(Some(ms)) => (
-                    Indicator::Passed,
-                    format!("Получен ответ MTProto за {ms} мс."),
-                ),
-                Some(None) => (
-                    Indicator::Unconfirmed,
-                    "Проверочный запрос не получил корректного ответа.".into(),
-                ),
+                Some(Some(_)) => (Indicator::Passed, self.tg_status.clone()),
+                Some(None) => (Indicator::Unconfirmed, self.tg_status.clone()),
                 None => (Indicator::Idle, "Сервер ещё не проверен.".into()),
             }
         }
@@ -266,10 +204,12 @@ impl Desktop {
 
     fn telegram_description(&self) -> String {
         let active = self.snap.as_ref().is_some_and(|s| s.telegram);
-        if active {
+        if active && self.network_notice_visible() {
+            "Сеть изменилась. Локальный прокси запущен.".into()
+        } else if active {
             match self.tg_quality.back() {
                 Some(Some(_)) => "Прокси запущен на этом компьютере.".into(),
-                Some(None) => "Прокси запущен. Ответ на проверочный запрос не подтверждён.".into(),
+                Some(None) => format!("Прокси запущен. {}", self.tg_status),
                 None => "Прокси запущен.".into(),
             }
         } else if self.snap.as_ref().is_some_and(|s| s.telegram_wanted) {
@@ -301,15 +241,19 @@ impl Desktop {
             } else {
                 "Связь выключена"
             };
+            ui.add_space(6.);
             title(ui, heading);
             ui.add_space(4.);
-            let status = if selected.telegram && !selected.uses_zapret() {
-                self.telegram_description()
-            } else if self.status.is_empty() {
-                "При подключении проверим выбранные сервисы.".into()
-            } else {
-                self.status.clone()
-            };
+            let status =
+                if self.network_notice_visible() && self.snap.as_ref().is_some_and(|s| s.discord) {
+                    "Сеть изменилась. Текущий альт запущен.".into()
+                } else if selected.telegram && !selected.uses_zapret() {
+                    self.telegram_description()
+                } else if self.status.is_empty() {
+                    labels(&selected)
+                } else {
+                    self.status.clone()
+                };
             hint(ui, status);
             if let Some(alt) = self
                 .snap
@@ -320,7 +264,7 @@ impl Desktop {
                 ui.add_space(4.);
                 caption(ui, format!("Текущий альт · {alt}"), 12.);
             }
-            ui.add_space(14.);
+            ui.add_space(20.);
             let label = if probing {
                 "Отменить и отключить"
             } else if connected || waiting {
@@ -338,139 +282,166 @@ impl Desktop {
                 }
             });
         });
-        if probing {
-            ui.add_space(4.);
-            let (line, _) =
-                ui.allocate_exact_size(Vec2::new(ui.available_width(), 3.), egui::Sense::hover());
-            ui.painter().rect_filled(line, 1., AMBER);
-        }
-        ui.add_space(16.);
-        group_heading(ui, "Проверки", &labels(&selected), false);
+        ui.add_space(22.);
+        group_heading(ui, "Сервисы", "", false);
         ui.add_space(6.);
         let result = self.report.as_ref();
-        if selected.discord {
-            for (name, help, item) in [
-                ("API", "Доступ к Discord", result.map(|r| &r.api)),
-                (
-                    "Gateway",
-                    "Соединение с Discord",
-                    result.map(|r| &r.gateway),
-                ),
-                (
-                    "Голосовой сервер",
-                    "Ответ сервера канала",
-                    result.map(|r| &r.voice),
-                ),
-            ] {
-                service_row(ui, name, help, item, self.connection_busy);
+        let status = |checks: &[&CheckResult]| {
+            if self.connection_busy {
+                Indicator::Checking
+            } else if checks.iter().any(|c| matches!(c, CheckResult::Failed(_))) {
+                Indicator::Failed
+            } else if !checks.is_empty()
+                && checks
+                    .iter()
+                    .all(|c| matches!(c, CheckResult::Success { .. }))
+            {
+                Indicator::Passed
+            } else {
+                Indicator::Idle
             }
+        };
+        if selected.discord {
+            let state =
+                result.map_or_else(|| status(&[]), |r| status(&[&r.api, &r.gateway, &r.voice]));
+            check_row(ui, "Discord", state, "API, Gateway и голосовой сервер");
         }
         if selected.youtube {
-            let (state, detail) = match result {
-                Some(r) => {
-                    let kind = if matches!(r.youtube, CheckResult::Failed(_))
-                        || matches!(r.google_video, CheckResult::Failed(_))
-                    {
-                        Indicator::Failed
-                    } else if matches!(r.youtube, CheckResult::Success { .. })
-                        && matches!(r.google_video, CheckResult::Success { .. })
-                    {
-                        Indicator::Passed
-                    } else {
-                        Indicator::Idle
-                    };
-                    (
-                        kind,
-                        format!(
-                            "Сайт YouTube · {}\nGooglevideo · {}\nВоспроизведение видео не проверяется.",
-                            check_detail(&r.youtube),
-                            check_detail(&r.google_video)
-                        ),
-                    )
-                }
-                None => (
-                    if self.connection_busy {
-                        Indicator::Checking
-                    } else {
-                        Indicator::Idle
-                    },
-                    "Сайт и Googlevideo. Воспроизведение видео не проверяется.".into(),
-                ),
-            };
-            check_row(ui, "YouTube · HTTPS", state, &detail);
+            let state =
+                result.map_or_else(|| status(&[]), |r| status(&[&r.youtube, &r.google_video]));
+            check_row(ui, "YouTube", state, "Сайт и Googlevideo");
         }
         if selected.telegram {
             let (state, detail) = self.telegram_check();
-            check_row(ui, "Сервер Telegram", state, &detail);
+            check_row(ui, "Telegram", state, &detail);
         }
-        ui.add_space(10.);
-        if let Some(text) = quality_summary(&self.quality) {
-            Frame::default()
-                .fill(Color32::from_rgb(37, 41, 44))
-                .corner_radius(12)
-                .inner_margin(10)
-                .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.label(RichText::new(text).size(12.));
-                    ui.add_space(4.);
-                    caption(ui, "Время ответа сервисов за последние пять проверок.", 11.);
-                });
-            ui.add_space(12.);
-        }
-        if selected.youtube {
-            caption(
-                ui,
-                "Для YouTube проверяется ответ сайта и Googlevideo.",
-                11.,
-            );
-            ui.add_space(12.);
-        }
-        if selected.uses_zapret() {
-            ui.add_enabled_ui(!self.busy(), |ui| {
-                if action(ui, "Полный подбор", false) {
-                    self.connect(true);
+        ui.add_space(18.);
+        disclosure(ui, "Диагностика подключения", |ui| {
+            let result = self.report.as_ref();
+            if selected.discord {
+                for (name, help, item) in [
+                    ("API", "Доступ к Discord", result.map(|r| &r.api)),
+                    (
+                        "Gateway",
+                        "Соединение с Discord",
+                        result.map(|r| &r.gateway),
+                    ),
+                    (
+                        "Голосовой сервер",
+                        "Ответ сервера канала",
+                        result.map(|r| &r.voice),
+                    ),
+                ] {
+                    service_row(ui, name, help, item, self.connection_busy);
                 }
-            });
-            ui.add_space(6.);
-            caption(
-                ui,
-                "Проверяет все альты для этой сети. Во время подбора связь может прерываться.",
-                11.,
-            );
-            ui.add_space(14.);
-            if !self.error.is_empty() && !probing {
-                if action(ui, "Повторить проверку", false) {
-                    self.manual = None;
-                    self.connect(false);
-                }
+            }
+            if selected.youtube {
+                let (state, detail) = match result {
+                    Some(r) => {
+                        let kind = if matches!(r.youtube, CheckResult::Failed(_))
+                            || matches!(r.google_video, CheckResult::Failed(_))
+                        {
+                            Indicator::Failed
+                        } else if matches!(r.youtube, CheckResult::Success { .. })
+                            && matches!(r.google_video, CheckResult::Success { .. })
+                        {
+                            Indicator::Passed
+                        } else {
+                            Indicator::Idle
+                        };
+                        (
+                            kind,
+                            format!(
+                                "Сайт YouTube · {}\nGooglevideo · {}\nВоспроизведение видео не проверяется.",
+                                check_detail(&r.youtube),
+                                check_detail(&r.google_video)
+                            ),
+                        )
+                    }
+                    None => (
+                        if self.connection_busy {
+                            Indicator::Checking
+                        } else {
+                            Indicator::Idle
+                        },
+                        "Сайт и Googlevideo. Воспроизведение видео не проверяется.".into(),
+                    ),
+                };
+                check_row(ui, "YouTube · HTTPS", state, &detail);
+            }
+            if selected.telegram {
+                let (state, detail) = self.telegram_check();
+                check_row(ui, "Сервер Telegram", state, &detail);
+            }
+            ui.add_space(10.);
+            if let Some(text) = quality_summary(&self.quality) {
+                Frame::default()
+                    .fill(Color32::from_rgb(37, 41, 44))
+                    .corner_radius(12)
+                    .inner_margin(10)
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.label(RichText::new(text).size(12.));
+                        ui.add_space(4.);
+                        caption(ui, "Время ответа сервисов за последние пять проверок.", 11.);
+                    });
                 ui.add_space(12.);
             }
-        }
-        if let Some(duration) = self.snap.as_ref().and_then(|s| s.uptime) {
-            ui.vertical_centered(|ui| {
+            if selected.youtube {
                 caption(
                     ui,
-                    format!("Подключено {} мин", duration.as_secs() / 60),
-                    12.,
-                )
-            });
-        }
-        if let Some(stamp) = self
-            .last_verified
-            .as_ref()
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        {
-            ui.add_space(4.);
-            ui.vertical_centered(|ui| {
+                    "Для YouTube проверяется ответ сайта и Googlevideo.",
+                    11.,
+                );
+                ui.add_space(12.);
+            }
+            if selected.uses_zapret() {
+                ui.add_enabled_ui(!self.busy(), |ui| {
+                    if action(ui, "Полный подбор", false) {
+                        self.connect(true);
+                    }
+                });
+                ui.add_space(6.);
                 caption(
                     ui,
-                    format!("Успешная проверка · {}", stamp.format("%d.%m %H:%M")),
-                    12.,
-                )
-            });
-            ui.add_space(12.);
-        }
-        compact_options(ui, "История проверок", |ui| {
+                    "Проверяет все альты для этой сети. Во время подбора связь может прерываться.",
+                    11.,
+                );
+                ui.add_space(14.);
+                if !self.error.is_empty() && !probing {
+                    if action(ui, "Повторить проверку", false) {
+                        self.manual = None;
+                        self.connect(false);
+                    }
+                    ui.add_space(12.);
+                }
+            }
+            if let Some(duration) = self.snap.as_ref().and_then(|s| s.uptime) {
+                ui.vertical_centered(|ui| {
+                    caption(
+                        ui,
+                        format!("Подключено {} мин", duration.as_secs() / 60),
+                        12.,
+                    )
+                });
+            }
+            if let Some(stamp) = self
+                .last_verified
+                .as_ref()
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            {
+                ui.add_space(4.);
+                ui.vertical_centered(|ui| {
+                    caption(
+                        ui,
+                        format!("Успешная проверка · {}", stamp.format("%d.%m %H:%M")),
+                        12.,
+                    )
+                });
+                ui.add_space(12.);
+            }
+        });
+        disclosure(ui, "История проверок", |ui| {
             ui.add_space(12.);
             if self.history.is_empty() {
                 hint(ui, "После подключения здесь появятся результаты подбора.");
@@ -581,7 +552,7 @@ impl Desktop {
             });
         }
         ui.add_space(16.);
-        compact_options(ui, "Настройки Telegram", |ui| {
+        disclosure(ui, "Настройки Telegram", |ui| {
             ui.add_space(12.);
             ui.add_enabled_ui(!self.busy() && !active && !waiting, |ui| {
                 ui.label("Локальный порт");
@@ -632,7 +603,8 @@ impl Desktop {
                 }
             });
         }
-        hero_inner(ui, false, Margin::symmetric(17, 13), |ui| {
+        card().inner_margin(16).show(ui, |ui| {
+            ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = 0.;
             ui.label(RichText::new("Сервисы подключения").font(semibold(21.)));
             ui.add_space(4.);
@@ -648,7 +620,11 @@ impl Desktop {
                 dividing_line(ui);
                 switch_row(ui, "Сообщать о длительном сбое", &mut self.quiet);
                 ui.add_space(6.);
-                if action(ui, "Сохранить выбор", true) {
+                let changed = self.snap.as_ref().is_some_and(|s| {
+                    self.services != s.prefs.effective_services(&s.state)
+                        || self.quiet != s.prefs.quiet_notifications
+                });
+                if changed && action(ui, "Сохранить выбор", true) {
                     self.send(Command::SaveServices(self.services.clone(), self.quiet));
                 }
             });
@@ -657,6 +633,13 @@ impl Desktop {
                 hint(ui, "Отключите связь, чтобы изменить выбор.");
             }
         });
+        if let Some(mut enabled) = self.snap.as_ref().map(|s| s.prefs.connection_sounds) {
+            ui.add_enabled_ui(!self.busy(), |ui| {
+                if switch_row(ui, "Звуки подключения и сбоев", &mut enabled) {
+                    self.send(Command::ConnectionSounds(enabled));
+                }
+            });
+        }
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.y = 0.;
             disclosure(ui, "Запуск и обновления", |ui| {
@@ -685,7 +668,7 @@ impl Desktop {
                 disclosure(ui, "Что нового", |ui| {
                     let heading = ui.strong(format!("Связь {}", running()));
                     if show_notes { heading.scroll_to_me(Some(egui::Align::Center)); }
-                    hint(ui, "Приложение и встроенный Telegram-прокси перенесены на Rust. Настройки предыдущей версии используются при первом запуске.");
+                    hint(ui, "Новая шапка окна, компактная диагностика и звуки подключения. Исправлены уведомления о смене сети и проверка Telegram.");
                     disclosure(ui, "Предыдущие выпуски", |ui| hint(ui, include_str!("release_history.txt").trim_end()));
                 });
                 if let Some(version) = self.snap.as_ref().and_then(|s| s.previous.as_ref()).map(|s| s.version.to_string()) {
@@ -796,34 +779,17 @@ impl Desktop {
     }
     pub(super) fn journal(&mut self, ui: &mut Ui) {
         title(ui, "Журнал");
-        let log = self.data.join("app.log");
-        if let Ok(meta) = fs::metadata(&log) {
-            let current = (meta.len(), meta.modified().ok());
-            if self.journal_meta != Some(current) {
-                if let Ok(mut file) = fs::File::open(&log) {
-                    let mut bytes = Vec::new();
-                    if file
-                        .seek(SeekFrom::Start(meta.len().saturating_sub(64 * 1024)))
-                        .is_ok()
-                        && file.take(64 * 1024).read_to_end(&mut bytes).is_ok()
-                    {
-                        let mut text = String::from_utf8_lossy(&bytes).into_owned();
-                        if let Some(secret) = self
-                            .snap
-                            .as_ref()
-                            .map(|s| s.state.telegram.secret.as_str())
-                            .filter(|s| !s.is_empty())
-                        {
-                            text = text.replace(secret, "•••");
-                        }
-                        self.journal = text;
-                        self.journal_meta = Some(current);
-                    }
-                }
-            }
+        let now = std::time::Instant::now();
+        if self
+            .journal_last_read
+            .is_none_or(|last| now.duration_since(last) >= std::time::Duration::from_millis(500))
+        {
+            self.journal_last_read = Some(now);
+            self.refresh_journal();
         }
         if self.journal.trim().is_empty() {
-            hero(ui, false, |ui| {
+            card().inner_margin(16).show(ui, |ui| {
+                ui.set_width(ui.available_width());
                 ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing.x = 12.;
                     let (icon, _) =
@@ -888,6 +854,35 @@ impl Desktop {
                             });
                         });
                 });
+        }
+    }
+
+    fn refresh_journal(&mut self) {
+        let log = self.data.join("app.log");
+        if let Ok(meta) = fs::metadata(&log) {
+            let current = (meta.len(), meta.modified().ok());
+            if self.journal_meta != Some(current) {
+                if let Ok(mut file) = fs::File::open(&log) {
+                    let mut bytes = Vec::new();
+                    if file
+                        .seek(SeekFrom::Start(meta.len().saturating_sub(64 * 1024)))
+                        .is_ok()
+                        && file.take(64 * 1024).read_to_end(&mut bytes).is_ok()
+                    {
+                        let mut text = String::from_utf8_lossy(&bytes).into_owned();
+                        if let Some(secret) = self
+                            .snap
+                            .as_ref()
+                            .map(|s| s.state.telegram.secret.as_str())
+                            .filter(|s| !s.is_empty())
+                        {
+                            text = text.replace(secret, "•••");
+                        }
+                        self.journal = text;
+                        self.journal_meta = Some(current);
+                    }
+                }
+            }
         }
     }
 
@@ -970,11 +965,8 @@ fn switch_row(ui: &mut Ui, label: &str, value: &mut bool) -> bool {
         Stroke::new(1.0_f32, outline),
         egui::StrokeKind::Inside,
     );
-    let x = if *value {
-        track.right() - 10.5
-    } else {
-        track.left() + 10.5
-    };
+    let t = transition(ui, response.id.with("knob"), *value);
+    let x = egui::lerp(track.left() + 10.5..=track.right() - 10.5, t);
     ui.painter().circle_filled(
         egui::pos2(x, track.center().y),
         7.,
@@ -1016,16 +1008,11 @@ fn disclosure(ui: &mut Ui, name: &str, body: impl FnOnce(&mut Ui)) {
         color,
     );
     let c = egui::pos2(row.right() - 13., row.center().y);
-    let arrows = if expanded {
-        [(-4., -2.), (0., 2.), (4., -2.)]
-    } else {
-        [(-2., -4.), (2., 0.), (-2., 4.)]
-    };
+    let t = transition(ui, id.with("arrow"), expanded);
+    let rotation = egui::emath::Rot2::from_angle(t * std::f32::consts::FRAC_PI_2);
+    let points = [(-2., -4.), (2., 0.), (-2., 4.)].map(|(x, y)| c + rotation * egui::vec2(x, y));
     ui.painter().add(egui::Shape::line(
-        arrows
-            .into_iter()
-            .map(|(x, y)| c + egui::vec2(x, y))
-            .collect(),
+        points.to_vec(),
         Stroke::new(1.5_f32, if focus { AMBER } else { MUTED }),
     ));
     response.on_hover_cursor(egui::CursorIcon::PointingHand);

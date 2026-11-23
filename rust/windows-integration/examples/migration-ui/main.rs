@@ -1,5 +1,7 @@
 #[cfg(windows)]
 mod capture;
+#[cfg(windows)]
+mod drag;
 
 #[cfg(windows)]
 fn main() -> std::io::Result<()> {

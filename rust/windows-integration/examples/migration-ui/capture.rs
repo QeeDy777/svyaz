@@ -13,7 +13,10 @@ use windows_sys::Win32::{
     Storage::Xps::PrintWindow,
     System::Threading::{AttachThreadInput, GetCurrentThreadId},
     UI::{
-        HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2},
+        HiDpi::{
+            GetSystemMetricsForDpi, SetProcessDpiAwarenessContext,
+            DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+        },
         Input::KeyboardAndMouse::*,
         WindowsAndMessaging::*,
     },
@@ -37,7 +40,9 @@ pub fn run() -> io::Result<()> {
                 return Err(io::Error::other("Fixture does not own this visible window"));
             }
             let class = window_class(hwnd)?;
+            check_window_icons(hwnd)?;
             foreground(hwnd);
+            super::drag::exercise(hwnd, pid)?;
             for (i, tab) in ["connection", "telegram", "settings", "journal"]
                 .iter()
                 .enumerate()
@@ -49,6 +54,7 @@ pub fn run() -> io::Result<()> {
                     &Path::new(dir).join(format!("rust-{tab}.png")),
                 )?;
             }
+            super::drag::window_buttons(hwnd, pid)?;
             println!("{class}");
             Ok(())
         }
@@ -88,6 +94,59 @@ fn owner(hwnd: HWND) -> u32 {
     pid
 }
 
+fn check_window_icons(hwnd: HWND) -> io::Result<()> {
+    for dpi in [96, 120, 144] {
+        for (kind, x, y) in [
+            (ICON_SMALL, SM_CXSMICON, SM_CYSMICON),
+            (ICON_BIG, SM_CXICON, SM_CYICON),
+        ] {
+            unsafe {
+                let mut handle = 0;
+                if SendMessageTimeoutW(
+                    hwnd,
+                    WM_GETICON,
+                    kind as usize,
+                    dpi as LPARAM,
+                    SMTO_ABORTIFHUNG | SMTO_BLOCK,
+                    2000,
+                    &mut handle,
+                ) == 0
+                    || handle == 0
+                {
+                    return Err(io::Error::other(format!(
+                        "Window returned no icon for kind {kind} at {dpi} DPI"
+                    )));
+                }
+                let mut info = ICONINFO::default();
+                if GetIconInfo(handle as HICON, &mut info) == 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                let mut pixels = BITMAP::default();
+                let length = GetObjectW(
+                    info.hbmColor,
+                    size_of::<BITMAP>() as i32,
+                    (&mut pixels as *mut BITMAP).cast(),
+                );
+                // GetIconInfo gives the caller two new bitmaps. The HICON belongs to the application.
+                for bitmap in [info.hbmColor, info.hbmMask] {
+                    if !bitmap.is_null() {
+                        DeleteObject(bitmap);
+                    }
+                }
+                let expected = (
+                    GetSystemMetricsForDpi(x, dpi),
+                    GetSystemMetricsForDpi(y, dpi),
+                );
+                let actual = (pixels.bmWidth, pixels.bmHeight);
+                if length == 0 || actual != expected {
+                    return Err(io::Error::other(format!("Window icon kind {kind} at {dpi} DPI: expected {expected:?}, got {actual:?}")));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn window_class(hwnd: HWND) -> io::Result<String> {
     let mut name = [0u16; 256];
     let len = unsafe { GetClassNameW(hwnd, name.as_mut_ptr(), name.len() as i32) };
@@ -118,7 +177,7 @@ unsafe extern "system" fn find_hidden(hwnd: HWND, param: LPARAM) -> i32 {
     1
 }
 
-fn foreground(hwnd: HWND) {
+pub(super) fn foreground(hwnd: HWND) {
     unsafe {
         ShowWindowAsync(hwnd, SW_SHOW);
         if SetForegroundWindow(hwnd) != 0 {
@@ -137,7 +196,7 @@ fn foreground(hwnd: HWND) {
     }
 }
 
-fn check_focus(hwnd: HWND, pid: u32) -> io::Result<()> {
+pub(super) fn check_focus(hwnd: HWND, pid: u32) -> io::Result<()> {
     if unsafe { GetForegroundWindow() } != hwnd || owner(hwnd) != pid {
         return Err(io::Error::other("Capture lost foreground ownership"));
     }

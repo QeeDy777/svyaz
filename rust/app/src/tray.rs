@@ -1,4 +1,5 @@
 //! Shell_NotifyIcon owns the tray icon (including its balloon), tray-icon owns its native menu.
+use super::window_icons::{IconSize, OwnedIcon};
 use eframe::egui;
 use std::{
     cell::{Cell, RefCell},
@@ -10,14 +11,20 @@ use std::{
 use tray_icon::menu::{ContextMenu, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use windows_sys::{
     Win32::{
-        Foundation::{HWND, LPARAM, LRESULT, WPARAM},
+        Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
+        Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromRect},
         System::LibraryLoader::GetModuleHandleW,
-        UI::{Shell::*, WindowsAndMessaging::*},
+        UI::{
+            HiDpi::{GetDpiForMonitor, GetDpiForSystem, MDT_EFFECTIVE_DPI},
+            Shell::*,
+            WindowsAndMessaging::*,
+        },
     },
     core::w,
 };
 
 const CALLBACK: u32 = WM_APP + 1;
+const REFRESH_ICON: u32 = WM_APP + 2;
 const ID: u32 = 1;
 const HOOK: usize = 1;
 const NIN_KEYSELECT: u32 = NIN_SELECT | NINF_KEY;
@@ -45,7 +52,8 @@ struct Callbacks {
     menu: Menu,
     menu_open: Cell<bool>,
     actions: RefCell<VecDeque<TrayAction>>,
-    icon: HICON,
+    icon: RefCell<OwnedIcon>,
+    refresh_posted: Cell<bool>,
     tooltip: RefCell<String>,
     explorer_started: u32,
 }
@@ -74,7 +82,7 @@ impl Callbacks {
     fn add_icon(&self, window: HWND) -> io::Result<()> {
         let mut d = data(window);
         d.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
-        d.hIcon = self.icon;
+        d.hIcon = self.icon.borrow().handle;
         d.uCallbackMessage = CALLBACK;
         wide_text(&mut d.szTip, &self.tooltip.borrow());
         if unsafe { Shell_NotifyIconW(NIM_ADD, &d) } == 0 {
@@ -82,7 +90,54 @@ impl Callbacks {
                 "Не удалось добавить значок «Связи» в трей.",
             ));
         }
+        self.queue_icon_refresh(window);
         Ok(())
+    }
+    fn queue_icon_refresh(&self, window: HWND) {
+        // Ask Explorer after its display-change broadcast has returned.
+        if !self.refresh_posted.replace(true)
+            && unsafe { PostMessageW(window, REFRESH_ICON, 0, 0) } == 0
+        {
+            self.refresh_posted.set(false);
+        }
+    }
+    fn refresh_icon(&self, window: HWND) {
+        let identifier = NOTIFYICONIDENTIFIER {
+            cbSize: size_of::<NOTIFYICONIDENTIFIER>() as u32,
+            hWnd: window,
+            uID: ID,
+            ..Default::default()
+        };
+        let mut bounds = RECT::default();
+        let dpi = unsafe {
+            let mut x = 0;
+            let mut y = 0;
+            if Shell_NotifyIconGetRect(&identifier, &mut bounds) == 0
+                && bounds.right > bounds.left
+                && GetDpiForMonitor(
+                    MonitorFromRect(&bounds, MONITOR_DEFAULTTONEAREST),
+                    MDT_EFFECTIVE_DPI,
+                    &mut x,
+                    &mut y,
+                ) == 0
+            {
+                x
+            } else {
+                GetDpiForSystem()
+            }
+        };
+        let size = IconSize::for_dpi(dpi, true);
+        if self.icon.borrow().size == size {
+            return;
+        }
+        if let Ok(new) = OwnedIcon::load(size) {
+            let mut d = data(window);
+            d.uFlags = NIF_ICON;
+            d.hIcon = new.handle;
+            if unsafe { Shell_NotifyIconW(NIM_MODIFY, &d) } != 0 {
+                self.icon.replace(new);
+            }
+        }
     }
     fn queue(&self, action: TrayAction) {
         self.actions.borrow_mut().push_back(action);
@@ -143,6 +198,14 @@ unsafe extern "system" fn window_event(
         }
         return 0;
     }
+    if msg == REFRESH_ICON {
+        cb.refresh_posted.set(false);
+        cb.refresh_icon(hwnd);
+        return 0;
+    }
+    if matches!(msg, WM_DPICHANGED | WM_SETTINGCHANGE | WM_DISPLAYCHANGE) {
+        cb.queue_icon_refresh(hwnd);
+    }
     if msg == cb.explorer_started {
         let _ = cb.add_icon(hwnd);
         return 0;
@@ -182,18 +245,7 @@ impl Tray {
         .map_err(io::Error::other)?;
         unsafe {
             let module = GetModuleHandleW(ptr::null());
-            // Resource 1 is the app.ico embedded by winresource in build.rs. LR_SHARED is process-owned.
-            let icon = LoadImageW(
-                module,
-                ID as usize as *const u16,
-                IMAGE_ICON,
-                GetSystemMetrics(SM_CXSMICON),
-                GetSystemMetrics(SM_CYSMICON),
-                LR_SHARED,
-            );
-            if icon.is_null() {
-                return Err(io::Error::last_os_error());
-            }
+            let icon = OwnedIcon::load(IconSize::for_dpi(GetDpiForSystem(), true))?;
             let explorer_started = RegisterWindowMessageW(w!("TaskbarCreated"));
             if explorer_started == 0 {
                 return Err(io::Error::last_os_error());
@@ -204,7 +256,8 @@ impl Tray {
                 menu,
                 menu_open: Cell::new(false),
                 actions: RefCell::new(VecDeque::new()),
-                icon,
+                icon: RefCell::new(icon),
+                refresh_posted: Cell::new(false),
                 tooltip: RefCell::new("Связь".into()),
                 explorer_started,
             });

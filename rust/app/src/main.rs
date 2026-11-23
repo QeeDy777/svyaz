@@ -9,8 +9,14 @@ mod recovery;
 mod reset;
 #[cfg(windows)]
 mod runner;
+#[cfg(any(windows, test))]
+mod sound;
 #[cfg(windows)]
 mod tray;
+#[cfg(windows)]
+mod window_chrome;
+#[cfg(windows)]
+mod window_icons;
 #[cfg(windows)]
 mod worker;
 

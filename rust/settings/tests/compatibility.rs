@@ -13,6 +13,8 @@ fn legacy_files_survive_edit_and_restart() {
     fs::write(&prefs,r#"{"NetworkStrategies":{"z":"старая","a":"новая"},"QuietNotifications":false,"LastSeenAppVersion":"0.13.3","Future":12}"#).unwrap();
     let mut state = AppState::load(&settings).unwrap();
     let mut preferences = ConvenienceState::load(&prefs).unwrap();
+    assert!(preferences.connection_sounds);
+    preferences.connection_sounds = false;
     assert!(preferences.effective_services(&state).telegram);
     assert!(!state.auto_update);
     state.last_strategy = Some("ALT 3".into());
@@ -38,6 +40,7 @@ fn legacy_files_survive_edit_and_restart() {
         json!({"Discord":false,"YouTube":false,"Telegram":true,"UsesZapret":false})
     );
     assert_eq!(val["Future"], 12);
+    assert!(!ConvenienceState::load(&prefs).unwrap().connection_sounds);
     assert_eq!(
         ConvenienceState::load(&prefs)
             .unwrap()
