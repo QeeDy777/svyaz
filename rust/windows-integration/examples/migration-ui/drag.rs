@@ -152,6 +152,45 @@ fn full_window_drag() -> io::Result<bool> {
     Ok(enabled != 0)
 }
 
+// Hosted Windows defaults to moving an outline. Exercise the live DWM path and
+// restore the temporary runner preference even when the fixture assertion fails.
+struct FullWindowDrag(bool);
+
+impl FullWindowDrag {
+    fn on_runner() -> io::Result<Self> {
+        if full_window_drag()? {
+            return Ok(Self(false));
+        }
+        if std::env::var("GITHUB_ACTIONS").as_deref() != Ok("true")
+            || std::env::var("RUNNER_ENVIRONMENT").as_deref() != Ok("github-hosted")
+        {
+            return Err(io::Error::other(
+                "Enable full-window dragging to run this desktop test",
+            ));
+        }
+        if unsafe { SystemParametersInfoW(SPI_SETDRAGFULLWINDOWS, 1, ptr::null_mut(), 0) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let restore = Self(true);
+        if !full_window_drag()? {
+            return Err(io::Error::other(
+                "Runner did not enable full-window dragging",
+            ));
+        }
+        Ok(restore)
+    }
+}
+
+impl Drop for FullWindowDrag {
+    fn drop(&mut self) {
+        if self.0 {
+            unsafe {
+                SystemParametersInfoW(SPI_SETDRAGFULLWINDOWS, 0, ptr::null_mut(), 0);
+            }
+        }
+    }
+}
+
 fn invalidate(hwnd: HWND) -> io::Result<()> {
     // Give Windows a real update region. Never send a fake WM_PAINT to the application.
     if unsafe { InvalidateRect(hwnd, ptr::null(), 0) } == 0 {
@@ -263,6 +302,7 @@ fn trace_motion(
 }
 
 pub fn exercise(hwnd: HWND, pid: u32) -> io::Result<()> {
+    let _full_drag = FullWindowDrag::on_runner()?;
     check_focus(hwnd, pid)?;
     let before = window_rect(hwnd)?;
     let mut area = MONITORINFO {
@@ -348,12 +388,13 @@ pub fn exercise(hwnd: HWND, pid: u32) -> io::Result<()> {
         || Ok(frame(hwnd)? > at_release),
     )?;
     let after_exit = frame(hwnd)?;
-    invalidate(hwnd)?;
+    // A regular user action must advance the frame count once movement stops.
+    super::capture::choose_tab(hwnd, pid, 1)?;
     wait_for(
-        "A fresh invalidation after the drag did not redraw egui",
+        "The interface did not redraw on input after the drag",
         || Ok(frame(hwnd)? > after_exit),
     )?;
-    eprintln!("Caption released: egui pass at release={at_release}, after exit={after_exit}, after invalidation={}", frame(hwnd)?);
+    eprintln!("Caption released: egui pass at release={at_release}, after exit={after_exit}, after tab input={}", frame(hwnd)?);
     unsafe {
         SetCursorPos(cursor.x, cursor.y);
     }
