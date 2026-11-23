@@ -8,7 +8,8 @@ use std::{
 use windows_sys::Win32::{
     Foundation::{HWND, POINT, RECT},
     Graphics::Gdi::{
-        ClientToScreen, GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+        ClientToScreen, GetMonitorInfoW, GetUpdateRect, InvalidateRect, MonitorFromWindow,
+        MONITORINFO, MONITOR_DEFAULTTONEAREST,
     },
     UI::{Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
@@ -114,6 +115,153 @@ fn caption_point(hwnd: HWND, rect: RECT, client: POINT, work: RECT) -> io::Resul
     ))
 }
 
+fn wait_for(description: &str, mut condition: impl FnMut() -> io::Result<bool>) -> io::Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !condition()? {
+        if Instant::now() >= deadline {
+            return Err(io::Error::other(description.to_owned()));
+        }
+        sleep(Duration::from_millis(15));
+    }
+    Ok(())
+}
+
+fn frame(hwnd: HWND) -> io::Result<usize> {
+    let value = unsafe { GetPropW(hwnd, windows_sys::w!("Svyaz.Test.Frame")) } as usize;
+    if value == 0 {
+        return Err(io::Error::other(
+            "The installed candidate did not expose a nonzero egui pass counter",
+        ));
+    }
+    Ok(value)
+}
+
+fn full_window_drag() -> io::Result<bool> {
+    let mut enabled = 0i32;
+    if unsafe {
+        SystemParametersInfoW(
+            SPI_GETDRAGFULLWINDOWS,
+            0,
+            (&mut enabled as *mut i32).cast(),
+            0,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(enabled != 0)
+}
+
+fn invalidate(hwnd: HWND) -> io::Result<()> {
+    // Give Windows a real update region. Never send a fake WM_PAINT to the application.
+    if unsafe { InvalidateRect(hwnd, ptr::null(), 0) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    wait_for("The fixture did not validate its dirty client area", || {
+        Ok(unsafe { GetUpdateRect(hwnd, ptr::null_mut(), 0) } == 0)
+    })
+}
+
+fn trace_motion(
+    hwnd: HWND,
+    pid: u32,
+    tid: u32,
+    x: i32,
+    y: i32,
+    distance: i32,
+) -> io::Result<usize> {
+    // Allow initial hover and caption transitions to finish before counting pass requests.
+    let mut last = frame(hwnd)?;
+    let mut quiet_since = Instant::now();
+    wait_for(
+        "The frame counter did not settle after entering the move loop",
+        || {
+            let current = frame(hwnd)?;
+            if current != last {
+                last = current;
+                quiet_since = Instant::now();
+            }
+            Ok(quiet_since.elapsed() >= Duration::from_millis(180))
+        },
+    )?;
+    let baseline = last;
+    let full = full_window_drag()?;
+    let mut prior_pointer = POINT::default();
+    if unsafe { GetCursorPos(&mut prior_pointer) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let steps = [7, 2, 6, 3, 8, 2, 7, 1, 6, 2, 5, 8];
+    let mut positions = Vec::new();
+    let mut motion_ms = Vec::new();
+    for eighths in steps {
+        check_focus(hwnd, pid)?;
+        let mut gui = GUITHREADINFO {
+            cbSize: size_of::<GUITHREADINFO>() as u32,
+            ..Default::default()
+        };
+        if unsafe { GetGUIThreadInfo(tid, &mut gui) } == 0
+            || gui.hwndMoveSize != hwnd
+            || gui.flags & GUI_INMOVESIZE == 0
+        {
+            return Err(io::Error::other(
+                "The native GUI move loop ended before the input sequence",
+            ));
+        }
+        let from = window_rect(hwnd)?.left;
+        let target = x + distance * eighths / 8;
+        let direction = (target - prior_pointer.x).signum();
+        let sent = Instant::now();
+        move_pointer(target, y)?;
+        wait_for(
+            "Drag input did not move the cursor and the fixture in the requested direction",
+            || {
+                check_focus(hwnd, pid)?;
+                let mut cursor = POINT::default();
+                if unsafe { GetCursorPos(&mut cursor) } == 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                let geometry_followed = !full || (window_rect(hwnd)?.left - from) * direction >= 3;
+                Ok(
+                    (cursor.x - target).abs() <= 1
+                        && (cursor.y - y).abs() <= 1
+                        && geometry_followed,
+                )
+            },
+        )?;
+        motion_ms.push(sent.elapsed().as_millis());
+        prior_pointer.x = target;
+        positions.push(window_rect(hwnd)?.left);
+        invalidate(hwnd)?;
+        // Separate stimuli so that coalescing a whole burst into one paint cannot pass the test.
+        sleep(Duration::from_millis(80));
+    }
+    let at_release = frame(hwnd)?;
+    let count = at_release
+        .checked_sub(baseline)
+        .ok_or_else(|| io::Error::other("The egui counter went backwards"))?;
+    eprintln!("Caption drag: full_window={full}, positions={positions:?}, invalidations={}, egui_passes={count} ({} -> {})", steps.len(), baseline, at_release);
+    if full {
+        motion_ms.sort_unstable();
+        eprintln!(
+            "Input to observed window position (ms): median={}, max={}",
+            motion_ms[motion_ms.len() / 2],
+            motion_ms.last().unwrap()
+        );
+        // Allow an isolated scheduling delay on a shared Windows runner.
+        if motion_ms.iter().filter(|&&ms| ms >= 250).count() >= 3 {
+            return Err(io::Error::other(
+                "The window repeatedly stalled while following the mouse",
+            ));
+        }
+    }
+    if count > 1 {
+        return Err(io::Error::other(
+            "Repeated egui passes during a pure window move",
+        ));
+    }
+    Ok(at_release)
+}
+
 pub fn exercise(hwnd: HWND, pid: u32) -> io::Result<()> {
     check_focus(hwnd, pid)?;
     let before = window_rect(hwnd)?;
@@ -186,26 +334,30 @@ pub fn exercise(hwnd: HWND, pid: u32) -> io::Result<()> {
         }
         sleep(Duration::from_millis(30));
     }
-    check_focus(hwnd, pid)?;
-    move_pointer(x + distance, y)?;
-    button.release()?; // Drop also releases the button on every preceding error path.
-    let until = Instant::now() + Duration::from_secs(5);
-    loop {
-        check_focus(hwnd, pid)?;
-        let after = window_rect(hwnd)?;
-        if (after.left - before.left) * distance.signum() >= 12 {
-            unsafe {
-                SetCursorPos(cursor.x, cursor.y);
-            }
-            return Ok(());
-        }
-        if Instant::now() >= until {
-            return Err(io::Error::other(
-                "Native caption drag did not move the window",
-            ));
-        }
-        sleep(Duration::from_millis(40));
+    let at_release = trace_motion(hwnd, pid, tid, x, y, distance)?;
+    button.release()?; // Drop also releases the button on all preceding error paths.
+    wait_for(
+        "Native caption drag did not commit its final position",
+        || {
+            check_focus(hwnd, pid)?;
+            Ok((window_rect(hwnd)?.left - before.left) * distance.signum() >= 12)
+        },
+    )?;
+    wait_for(
+        "The fixture did not repaint after releasing the caption",
+        || Ok(frame(hwnd)? > at_release),
+    )?;
+    let after_exit = frame(hwnd)?;
+    invalidate(hwnd)?;
+    wait_for(
+        "A fresh invalidation after the drag did not redraw egui",
+        || Ok(frame(hwnd)? > after_exit),
+    )?;
+    eprintln!("Caption released: egui pass at release={at_release}, after exit={after_exit}, after invalidation={}", frame(hwnd)?);
+    unsafe {
+        SetCursorPos(cursor.x, cursor.y);
     }
+    Ok(())
 }
 
 /// Exercise the two application-drawn controls while the disposable fixture is foreground.
