@@ -202,7 +202,7 @@ fn hero_inner(ui: &mut Ui, waves: bool, margin: Margin, content: impl FnOnce(&mu
                     [pt(x, 108.), pt(cx, cy), pt(137., y)],
                     false,
                     Color32::TRANSPARENT,
-                    (1., Color32::from_rgba_unmultiplied(255, 183, 112, 33)),
+                    (1., Color32::from_rgba_unmultiplied(255, 183, 112, 8)),
                 ),
             ));
         }

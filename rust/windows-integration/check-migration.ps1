@@ -171,7 +171,7 @@ public static class MigrationWindow {
         Assert $verified "Captured the rendered $($tabs[$i]) tab on Windows"
     }
 }
-function Assert-Runtime($item,[bool]$native) {
+function Assert-Runtime($item,[bool]$native,[bool]$captureTabs=$true) {
     $exe = Executable $item
     $deadline = [DateTime]::UtcNow.AddSeconds(15)
     do {
@@ -183,7 +183,7 @@ function Assert-Runtime($item,[bool]$native) {
     if ($native) {
         $managedModules = @($runtime.Modules | Where-Object { $_.ModuleName -like 'python*.dll' -or $_.ModuleName -in @('coreclr.dll','wpfgfx_cor3.dll','PresentationNative_cor3.dll') })
         Assert ($managedModules.Count -eq 0) 'The candidate runs without loading CPython, the CLR or WPF'
-        Save-NativeTabs $runtime
+        if ($captureTabs) { Save-NativeTabs $runtime }
     }
 }
 function Assert-Links($item) {
@@ -238,7 +238,7 @@ function Assert-TrayStartup([string]$nativeExe) {
 Assert ($version -gt [Version]'0.13.3') 'Native EXE has an updatable numeric Windows file version'
 $null = New-Item -ItemType Directory -Force $data
 $settingsSeed = '{"AutoUpdate":false,"AutostartConfigured":true,"LastStrategy":"migration-fixture","Telegram":{"Port":32412,"Secret":"","StartWithApp":false}}'
-$prefsSeed = '{"NetworkStrategies":{"migration-network":"migration-alt"},"Services":{"Discord":true,"YouTube":false,"Telegram":false},"QuietNotifications":true}'
+$prefsSeed = '{"NetworkStrategies":{"migration-network":"migration-alt"},"Services":{"Discord":true,"YouTube":true,"Telegram":false},"QuietNotifications":true}'
 [IO.File]::WriteAllText($settings,$settingsSeed)
 [IO.File]::WriteAllText($preferences,$prefsSeed)
 $knownExecutables = @($app)
@@ -278,8 +278,19 @@ try {
     [IO.File]::WriteAllText($settings,$settingsSeed.Replace('"AutoUpdate":false','"AutoUpdate":true'))
     Start-Handoff $app
     Assert ((Pointer current).Id -eq $next.Id -and -not (Test-Path "$update/pending.json")) '0.13.3 promoted the native candidate after ready acknowledgement'
-    Assert-Runtime $next $true
+    Assert-Runtime $next $true $false
     Assert-Links $next
+    # The first launch opens release notes. Capture the normal four-tab layout on the next launch.
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $prefs = Get-Content $preferences -Raw | ConvertFrom-Json -AsHashtable
+        if ($prefs['LastSeenAppVersion'] -eq $version.ToString()) { break }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    Assert ($prefs['LastSeenAppVersion'] -eq $version.ToString()) 'First launch recorded the release notes'
+    Stop-ExactProcess (Executable $next)
+    Start-Process -FilePath (Executable $next) -ArgumentList '--skip-self-update'
+    Assert-Runtime $next $true
     Stop-ExactProcess (Executable $next)
     $loaded = Get-Content $settings -Raw | ConvertFrom-Json
     Assert ($loaded.LastStrategy -eq 'migration-fixture' -and $loaded.Telegram.Port -eq 32412) 'Upgrade kept the selected strategy and Telegram port'
