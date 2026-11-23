@@ -37,6 +37,7 @@ pub enum Command {
     },
     Stop,
     Telegram,
+    StopTelegram,
     ProbeTelegram,
     SaveTelegram {
         port: i32,
@@ -60,6 +61,7 @@ pub enum Event {
     Status(String),
     Checks(String, Outcome),
     Telegram(String),
+    TelegramProbe(Option<u64>),
     Error(String),
     ResetConfirm(Vec<(String, String)>),
     Notice(String),
@@ -82,7 +84,7 @@ pub struct Snapshot {
 pub struct Worker {
     tx: Sender<(Command, Arc<AtomicBool>)>,
     pub events: Receiver<Event>,
-    pending_commands: Vec<Weak<AtomicBool>>,
+    pending_commands: Vec<(bool, Weak<AtomicBool>)>,
     background: Arc<AtomicBool>,
     handle: Option<thread::JoinHandle<()>>,
 }
@@ -103,15 +105,26 @@ impl Worker {
         }
     }
     pub fn send(&mut self, cmd: Command) {
-        self.background.store(true, Ordering::Release);
-        self.pending_commands.retain(|weak| weak.strong_count() > 0);
-        if matches!(cmd, Command::Stop | Command::Quit) {
-            for token in self.pending_commands.iter().filter_map(Weak::upgrade) {
-                token.store(true, Ordering::Release);
-            }
+        let stop_telegram = matches!(cmd, Command::StopTelegram);
+        let stop_all = matches!(cmd, Command::Stop | Command::Quit);
+        if !stop_telegram {
+            self.background.store(true, Ordering::Release);
         }
+        self.pending_commands.retain(|(telegram, weak)| {
+            if let Some(token) = weak.upgrade() {
+                if stop_all || stop_telegram && *telegram {
+                    token.store(true, Ordering::Release);
+                }
+                true
+            } else {
+                false
+            }
+        });
         let token = Arc::new(AtomicBool::new(false));
-        self.pending_commands.push(Arc::downgrade(&token));
+        self.pending_commands.push((
+            matches!(cmd, Command::Telegram | Command::ProbeTelegram),
+            Arc::downgrade(&token),
+        ));
         let _ = self.tx.send((cmd, token));
     }
 }
@@ -276,9 +289,11 @@ impl Engine {
     }
     fn check_tg(&mut self, cancel: &AtomicBool) -> io::Result<()> {
         let result = self.tg.probe(cancel)?;
+        guard(cancel)?;
         if !self.tg.status()?.alive {
             return Err(io::Error::other("Движок Telegram остановился."));
         }
+        self.send(Event::TelegramProbe(result));
         self.send(Event::Telegram(result.map_or(
             "Работает локально · сервер не подтвердил проверку".into(),
             |ms| format!("Сервер ответил за {ms} мс"),
@@ -391,6 +406,9 @@ impl Engine {
                     self.send(Event::Exit(restart));
                     break;
                 }
+                Err(e)
+                    if e.kind() == io::ErrorKind::Interrupted && cancel.load(Ordering::Acquire) => {
+                }
                 Err(e) => {
                     log(&self.data, &e.to_string());
                     self.send(Event::Error(e.to_string()));
@@ -473,6 +491,12 @@ impl Engine {
     fn handle(&mut self, cmd: Command, cancel: &AtomicBool) -> io::Result<Option<Option<Restart>>> {
         if matches!(cmd, Command::Quit) {
             return Ok(Some(None));
+        }
+        if matches!(cmd, Command::StopTelegram) {
+            self.tg_recovery.stop();
+            self.tg.stop()?;
+            self.send(Event::Telegram("Отключено".into()));
+            return Ok(None);
         }
         if matches!(cmd, Command::Stop) {
             self.recovery.stop();
@@ -569,7 +593,7 @@ impl Engine {
                 }
                 tg?;
             }
-            Command::Stop => unreachable!(),
+            Command::Stop | Command::StopTelegram => unreachable!(),
             Command::Telegram => {
                 if self.tg.status()?.alive || self.tg_recovery.wanted {
                     self.tg_recovery.stop();
@@ -682,5 +706,76 @@ fn guard(c: &AtomicBool) -> io::Result<()> {
         Err(io::Error::new(io::ErrorKind::Interrupted, "Отменено"))
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stopping_telegram_preserves_discord_even_if_settings_cannot_be_read() {
+        let data = std::env::temp_dir().join(format!(
+            "svyaz-stop-telegram-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&data).unwrap();
+        fs::write(data.join(SETTINGS_FILE), b"{invalid").unwrap();
+        let (tx, _events) = mpsc::channel();
+        let mut engine = Engine::new(PathBuf::new(), data.clone(), tx, egui::Context::default());
+        engine.recovery.enable();
+        engine.tg_recovery.enable();
+        engine.started = Some(Instant::now());
+        assert!(engine.state().is_err());
+        assert!(
+            engine
+                .handle(Command::StopTelegram, &AtomicBool::new(false))
+                .unwrap()
+                .is_none()
+        );
+        assert!(!engine.tg_recovery.wanted);
+        assert!(engine.recovery.wanted);
+        assert!(engine.started.is_some());
+        fs::remove_file(data.join(SETTINGS_FILE)).unwrap();
+        fs::remove_dir(data).unwrap();
+    }
+
+    #[test]
+    fn stopping_telegram_cancels_only_pending_telegram_commands() {
+        let (tx, rx) = mpsc::channel();
+        let mut worker = Worker {
+            tx,
+            events: mpsc::channel().1,
+            pending_commands: vec![],
+            background: Arc::new(AtomicBool::new(false)),
+            handle: None,
+        };
+        worker.send(Command::Telegram);
+        let (_, running_probe) = rx.recv().unwrap();
+        worker.send(Command::Connect {
+            full: true,
+            manual: None,
+            voice: String::new(),
+        });
+        worker.send(Command::ProbeTelegram);
+        worker.background.store(false, Ordering::Release);
+        worker.send(Command::StopTelegram);
+        let (_, discord) = rx.recv().unwrap();
+        let (_, queued_probe) = rx.recv().unwrap();
+        let _stop = rx.recv().unwrap();
+        assert!(running_probe.load(Ordering::Acquire));
+        assert!(queued_probe.load(Ordering::Acquire));
+        assert!(!discord.load(Ordering::Acquire));
+        assert!(!worker.background.load(Ordering::Acquire));
+        worker.send(Command::Telegram);
+        let (_, later_start) = rx.recv().unwrap();
+        assert!(!later_start.load(Ordering::Acquire));
+        worker.send(Command::Stop);
+        assert!(later_start.load(Ordering::Acquire));
+        assert!(discord.load(Ordering::Acquire));
     }
 }

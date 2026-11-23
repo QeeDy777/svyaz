@@ -23,14 +23,13 @@ use windows_sys::Win32::{
 mod panes;
 
 const BG: Color32 = Color32::from_rgb(18, 20, 22);
-const CARD: Color32 = Color32::from_rgb(29, 32, 34);
-const HERO: Color32 = Color32::from_rgb(41, 36, 32);
-const LINE: Color32 = Color32::from_rgb(56, 60, 62);
-const INK: Color32 = Color32::from_rgb(244, 244, 240);
-const MUTED: Color32 = Color32::from_rgb(174, 180, 179);
+const CARD: Color32 = Color32::from_rgb(28, 31, 34);
+const LINE: Color32 = Color32::from_rgb(57, 61, 64);
+const INK: Color32 = Color32::from_rgb(243, 243, 239);
+const MUTED: Color32 = Color32::from_rgb(170, 176, 175);
 const AMBER: Color32 = Color32::from_rgb(255, 183, 112);
 const GREEN: Color32 = Color32::from_rgb(166, 222, 192);
-const RED: Color32 = Color32::from_rgb(255, 137, 124);
+const RED: Color32 = Color32::from_rgb(255, 107, 107);
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 enum Tab {
@@ -68,6 +67,18 @@ fn configure(ctx: &egui::Context) {
                 .insert(0, "Segoe UI".into());
         }
     }
+    let family = egui::FontFamily::Name("Interface Semibold".into());
+    let mut fallback = fonts.families[&egui::FontFamily::Proportional].clone();
+    if let Some(bytes) = std::env::var_os("WINDIR")
+        .and_then(|w| fs::read(PathBuf::from(w).join("Fonts/seguisb.ttf")).ok())
+    {
+        fonts.font_data.insert(
+            "Segoe UI Semibold".into(),
+            egui::FontData::from_owned(bytes).into(),
+        );
+        fallback.insert(0, "Segoe UI Semibold".to_owned());
+    }
+    fonts.families.insert(family, fallback);
     ctx.set_fonts(fonts);
     ctx.set_theme(egui::ThemePreference::Dark);
     let mut s = (*ctx.style()).clone();
@@ -86,7 +97,11 @@ fn configure(ctx: &egui::Context) {
     s.visuals.hyperlink_color = AMBER;
     s.spacing.item_spacing = Vec2::new(8.0, 8.0);
     s.spacing.button_padding = Vec2::new(12.0, 7.0);
-    s.spacing.scroll.bar_inner_margin = 12.0;
+    s.spacing.scroll.floating = false;
+    s.spacing.scroll.bar_width = 7.0;
+    s.spacing.scroll.bar_inner_margin = 14.0;
+    s.spacing.scroll.bar_outer_margin = 0.0;
+    s.visuals.widgets.noninteractive.fg_stroke.color = INK;
     s.text_styles
         .insert(egui::TextStyle::Body, egui::FontId::proportional(14.0));
     s.text_styles
@@ -102,23 +117,153 @@ fn card() -> Frame {
         .corner_radius(12)
         .inner_margin(12)
 }
+fn semibold(size: f32) -> egui::FontId {
+    egui::FontId::new(size, egui::FontFamily::Name("Interface Semibold".into()))
+}
 fn title(ui: &mut Ui, text: &str) {
-    ui.label(RichText::new(text).size(24.0).strong());
+    ui.label(RichText::new(text).font(semibold(28.)).color(INK));
 }
 fn hint(ui: &mut Ui, text: impl Into<String>) {
-    ui.label(RichText::new(text).size(13.0).color(MUTED));
+    ui.label(RichText::new(text).size(13.).color(MUTED));
+}
+
+// The radial stops and the five curves come from the 0.13.3 WPF theme.
+fn hero(ui: &mut Ui, waves: bool, content: impl FnOnce(&mut Ui)) {
+    hero_inner(ui, waves, Margin::same(17), content)
+}
+fn hero_inner(ui: &mut Ui, waves: bool, margin: Margin, content: impl FnOnce(&mut Ui)) {
+    let texture_id = egui::Id::new("ASF hero gradient");
+    let texture = ui
+        .ctx()
+        .data(|data| data.get_temp::<egui::TextureHandle>(texture_id))
+        .unwrap_or_else(|| {
+            let n = 96;
+            let mut image = egui::ColorImage::new([n, n], Color32::BLACK);
+            for y in 0..n {
+                for x in 0..n {
+                    let dx = (x as f32 / (n - 1) as f32 - 1.) / 0.85;
+                    let dy = (y as f32 / (n - 1) as f32 - 1.2) / 1.15;
+                    let distance = dx.hypot(dy).min(1.);
+                    let (from, to, t) = if distance < 0.36 {
+                        ([159., 101., 64.], [81., 59., 44.], distance / 0.36)
+                    } else {
+                        ([81., 59., 44.], [36., 35., 34.], (distance - 0.36) / 0.64)
+                    };
+                    let rgb: [u8; 3] =
+                        std::array::from_fn(|i| (from[i] + (to[i] - from[i]) * t).round() as u8);
+                    image[(x, y)] = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+                }
+            }
+            let tex = ui
+                .ctx()
+                .load_texture("ASF hero", image, egui::TextureOptions::LINEAR);
+            ui.ctx()
+                .data_mut(|d| d.insert_temp(texture_id, tex.clone()));
+            tex
+        });
+    let background = ui.painter().add(egui::Shape::Noop);
+    let rect = Frame::default()
+        .inner_margin(margin)
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            content(ui);
+        })
+        .response
+        .rect;
+    let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1., 1.));
+    let mut shapes = vec![
+        egui::Shape::Rect(
+            egui::epaint::RectShape::filled(rect, 16, Color32::WHITE)
+                .with_texture(texture.id(), uv),
+        ),
+        egui::Shape::rect_stroke(
+            rect,
+            16,
+            (1., Color32::from_rgb(102, 83, 68)),
+            egui::StrokeKind::Inside,
+        ),
+    ];
+    if waves {
+        let pt = |x: f32, y: f32| {
+            egui::pos2(
+                rect.right() - 12. - 104. + (x - 20.) * 104. / 117.,
+                rect.top() + 10. + (y - 28.) * 55. / 80.,
+            )
+        };
+        for (x, cx, cy, y) in [
+            (20., 34., 57., 28.),
+            (37., 50., 68., 43.),
+            (55., 65., 80., 58.),
+            (77., 88., 88., 74.),
+            (101., 114., 98., 90.),
+        ] {
+            shapes.push(egui::Shape::QuadraticBezier(
+                egui::epaint::QuadraticBezierShape::from_points_stroke(
+                    [pt(x, 108.), pt(cx, cy), pt(137., y)],
+                    false,
+                    Color32::TRANSPARENT,
+                    (1., Color32::from_rgba_unmultiplied(255, 183, 112, 33)),
+                ),
+            ));
+        }
+    }
+    ui.painter().set(background, egui::Shape::Vec(shapes));
 }
 fn action(ui: &mut Ui, text: &str, primary: bool) -> bool {
-    let mut button = egui::Button::new(
-        RichText::new(text)
-            .color(if primary { BG } else { INK })
-            .strong(),
-    )
-    .corner_radius(8);
-    if primary {
-        button = button.fill(AMBER).stroke(Stroke::NONE);
+    let power = matches!(
+        text,
+        "Подключить" | "Отключить" | "Запустить прокси" | "Остановить прокси"
+    );
+    let label = if power {
+        format!("     {text}")
+    } else {
+        text.to_owned()
+    };
+    let fg = if primary {
+        Color32::from_rgb(38, 27, 18)
+    } else {
+        INK
+    };
+    let fill = if primary {
+        AMBER
+    } else {
+        Color32::from_rgb(48, 52, 55)
+    };
+    let button = egui::Button::new(RichText::new(label).font(semibold(14.)).color(fg))
+        .corner_radius(12)
+        .fill(fill)
+        .stroke(Stroke::new(
+            1.0_f32,
+            if primary {
+                Color32::from_rgb(227, 154, 89)
+            } else {
+                LINE
+            },
+        ));
+    let response = ui.add_sized([ui.available_width(), 40.], button);
+    if power {
+        let width = ui
+            .painter()
+            .layout_no_wrap(text.to_string(), semibold(14.), fg)
+            .size()
+            .x;
+        let center = egui::pos2(
+            response.rect.center().x - width / 2. - 5.,
+            response.rect.center().y,
+        );
+        let arc: Vec<_> = (0..=20)
+            .map(|i| {
+                let angle = (-50. + i as f32 * 14.).to_radians();
+                center + egui::vec2(angle.cos(), angle.sin()) * 6.5
+            })
+            .collect();
+        ui.painter().add(egui::Shape::line(arc, (1.8, fg)));
+        ui.painter().line_segment(
+            [center - egui::vec2(0., 8.), center - egui::vec2(0., 1.)],
+            (1.8, fg),
+        );
     }
-    ui.add_sized([ui.available_width(), 38.0], button).clicked()
+    response.clicked()
 }
 
 fn navigation(ui: &mut Ui, tab: Tab, label: &str, selected: bool) -> egui::Response {
@@ -130,7 +275,7 @@ fn navigation(ui: &mut Ui, tab: Tab, label: &str, selected: bool) -> egui::Respo
     let p = ui.painter();
     let fg = if selected { AMBER } else { MUTED };
     if selected || response.hovered() || response.has_focus() {
-        p.rect_filled(rect, 8., CARD);
+        p.rect_filled(rect, 8., Color32::from_rgb(37, 41, 44));
     }
     if response.has_focus() {
         p.rect_stroke(
@@ -200,7 +345,10 @@ fn navigation(ui: &mut Ui, tab: Tab, label: &str, selected: bool) -> egui::Respo
     );
     if selected {
         p.rect_filled(
-            egui::Rect::from_center_size(xy(10., 42.), Vec2::new(18., 2.)),
+            egui::Rect::from_center_size(
+                egui::pos2(rect.center().x, rect.top() + 1.),
+                Vec2::new(29., 2.),
+            ),
             1.,
             AMBER,
         );
@@ -221,7 +369,7 @@ pub(super) fn show(
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Связь")
-            .with_inner_size([440., 680.])
+            .with_inner_size([424., 640.])
             .with_resizable(false)
             .with_maximize_button(false)
             .with_icon(icon.clone()),
@@ -263,6 +411,11 @@ pub(super) fn show(
                 exiting: false,
                 restart: written,
                 inflight: 0,
+                operations: VecDeque::new(),
+                connection_busy: false,
+                tg_busy: false,
+                tg_quality: VecDeque::new(),
+                tg_started: None,
                 snap: None,
                 status: String::new(),
                 error: String::new(),
@@ -314,6 +467,11 @@ struct Desktop {
     exiting: bool,
     restart: Arc<Mutex<Option<Restart>>>,
     inflight: usize,
+    operations: VecDeque<(bool, bool)>,
+    connection_busy: bool,
+    tg_busy: bool,
+    tg_quality: VecDeque<Option<u64>>,
+    tg_started: Option<std::time::Instant>,
     snap: Option<Box<Snapshot>>,
     status: String,
     error: String,
@@ -343,11 +501,22 @@ struct Desktop {
 impl Desktop {
     fn send(&mut self, cmd: Command) {
         self.inflight += 1;
+        let connecting = matches!(cmd, Command::Connect { .. } | Command::Reset(_));
+        let telegram = matches!(
+            cmd,
+            Command::Telegram | Command::ProbeTelegram | Command::StopTelegram
+        );
+        self.operations.push_back((connecting, telegram));
+        self.connection_busy |= connecting;
+        self.tg_busy |= telegram;
         if !matches!(cmd, Command::MarkReleaseNotesSeen) {
             self.feedback.clear();
             self.error.clear();
         }
         self.worker.send(cmd);
+    }
+    fn cancel_telegram(&mut self) {
+        self.send(Command::StopTelegram);
     }
     fn busy(&self) -> bool {
         self.inflight != 0
@@ -391,6 +560,7 @@ impl Desktop {
                     format!("Подбор {position}/{total}")
                 };
                 self.quality.clear();
+                self.report = None;
                 self.status = format!("{s} · {name}");
                 return;
             }
@@ -481,8 +651,25 @@ impl Desktop {
                     }
                     self.status = s;
                 }
-                Event::Finished => self.inflight = self.inflight.saturating_sub(1),
+                Event::TelegramProbe(result) => {
+                    if self.tg_quality.len() == 5 {
+                        self.tg_quality.pop_front();
+                    }
+                    self.tg_quality.push_back(result);
+                }
+                Event::Finished => {
+                    self.operations.pop_front();
+                    self.inflight = self.operations.len();
+                    self.connection_busy = self.operations.iter().any(|x| x.0);
+                    self.tg_busy = self.operations.iter().any(|x| x.1);
+                }
                 Event::State(next) => {
+                    if next.telegram {
+                        self.tg_started.get_or_insert_with(std::time::Instant::now);
+                    } else {
+                        self.tg_started = None;
+                        self.tg_quality.clear();
+                    }
                     self.proxy_url = if next.telegram {
                         svyaz_telegram::proxy_url_at(&self.data, &next.state).ok()
                     } else {
@@ -615,7 +802,7 @@ impl eframe::App for Desktop {
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.image((self.logo.id(), Vec2::splat(30.0)));
-                    ui.label(RichText::new("Связь").size(19.).strong());
+                    ui.label(RichText::new("Связь").font(semibold(19.)).color(INK));
                     ui.label(RichText::new(running().to_string()).color(MUTED).size(12.));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let (label, color) = match self.snap.as_deref() {
@@ -657,24 +844,31 @@ impl eframe::App for Desktop {
                     .inner_margin(Margin::symmetric(16, 14)),
             )
             .show(ctx, |ui| {
-                egui::ScrollArea::vertical()
-                    .id_salt(("page", self.tab as u8))
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        if !self.error.is_empty() {
-                            ui.colored_label(RED, self.error.clone());
-                        }
-                        if self.tab != Tab::Connection && !self.feedback.is_empty() {
-                            hint(ui, &self.feedback);
-                        }
-                        self.update_banner(ui);
-                        match self.tab {
-                            Tab::Connection => self.connection(ui),
-                            Tab::Telegram => self.telegram(ui),
-                            Tab::Settings => self.settings(ui),
-                            Tab::Journal => self.journal(ui),
-                        }
-                    });
+                let tab = self.tab;
+                let page = |ui: &mut Ui| {
+                    if !self.error.is_empty() {
+                        ui.colored_label(RED, self.error.clone());
+                    }
+                    if self.tab != Tab::Connection && !self.feedback.is_empty() {
+                        hint(ui, &self.feedback);
+                    }
+                    self.update_banner(ui);
+                    match self.tab {
+                        Tab::Connection => self.connection(ui),
+                        Tab::Telegram => self.telegram(ui),
+                        Tab::Settings => self.settings(ui),
+                        Tab::Journal => self.journal(ui),
+                    }
+                };
+                if tab == Tab::Journal {
+                    let mut page = page;
+                    page(ui);
+                } else {
+                    egui::ScrollArea::vertical()
+                        .id_salt(("page", tab as u8))
+                        .auto_shrink([false, false])
+                        .show(ui, page);
+                }
             });
         self.confirm_reset(ctx);
     }

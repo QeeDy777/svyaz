@@ -2,31 +2,152 @@ use super::*;
 use std::io::{Read, Seek, SeekFrom};
 use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
 
-fn section(ui: &mut Ui, name: &str, body: impl FnOnce(&mut Ui)) {
-    card().show(ui, |ui| {
-        ui.set_min_width(ui.available_width());
-        egui::CollapsingHeader::new(RichText::new(name).strong().size(15.)).show(ui, body);
-    });
+#[derive(Clone, Copy)]
+enum Indicator {
+    Idle,
+    Checking,
+    Passed,
+    Failed,
+    Unconfirmed,
 }
-fn check_row(ui: &mut Ui, name: &str, check: Option<&CheckResult>, enabled: bool) {
-    let (text, color) = match check {
-        _ if !enabled => ("Не выбрано".into(), MUTED),
-        Some(CheckResult::Success { elapsed_ms }) => (format!("✓ {elapsed_ms} мс"), GREEN),
-        Some(CheckResult::Failed(_)) => ("× Нет ответа".into(), RED),
-        Some(CheckResult::Skipped) => ("Не выбрано".into(), MUTED),
-        None => ("○ Не проверено".into(), MUTED),
-    };
+impl Indicator {
+    fn appearance(self) -> (&'static str, Color32) {
+        match self {
+            Self::Idle => ("Не проверено", MUTED),
+            Self::Checking => ("Проверяем…", AMBER),
+            Self::Passed => ("Отвечает", GREEN),
+            Self::Failed => ("Не отвечает", RED),
+            Self::Unconfirmed => ("Без подтверждения", Color32::from_rgb(245, 197, 66)),
+        }
+    }
+}
+
+fn caption(ui: &mut Ui, text: impl Into<String>, size: f32) {
+    ui.label(RichText::new(text).size(size).color(MUTED));
+}
+
+fn group_heading(ui: &mut Ui, heading: &str, right: &str, endpoint: bool) {
     ui.horizontal(|ui| {
-        ui.strong(name);
+        ui.label(RichText::new(heading).font(semibold(21.)));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let reply = ui.label(RichText::new(text).size(13.).color(color));
-            if let Some(CheckResult::Failed(reason)) = check {
-                reply.on_hover_text(reason);
-            }
+            let text = RichText::new(right).color(MUTED);
+            ui.label(if endpoint {
+                text.monospace().size(13.)
+            } else {
+                text.size(12.)
+            });
         });
     });
-    ui.separator();
 }
+
+fn check_row(ui: &mut Ui, name: &str, kind: Indicator, detail: &str) {
+    let (status, color) = kind.appearance();
+    let row = ui.allocate_ui_with_layout(
+        Vec2::new(ui.available_width(), 36.),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            ui.label(RichText::new(name).size(14.));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 6.;
+                ui.label(RichText::new(status).color(color).font(semibold(12.)));
+                let (dot, _) = ui.allocate_exact_size(Vec2::splat(6.), egui::Sense::hover());
+                ui.painter().circle_filled(dot.center(), 3., color);
+            });
+        },
+    );
+    let rect = row.response.rect;
+    ui.painter().hline(
+        rect.x_range(),
+        rect.bottom() - 0.5,
+        Stroke::new(1.0_f32, LINE),
+    );
+    row.response.on_hover_text(detail);
+}
+
+fn check_detail(check: &CheckResult) -> String {
+    match check {
+        CheckResult::Success { elapsed_ms } => format!("Ответ за {elapsed_ms} мс"),
+        CheckResult::Failed(reason) => reason.clone(),
+        CheckResult::Skipped => "Проверка пропущена".into(),
+    }
+}
+
+fn service_row(
+    ui: &mut Ui,
+    name: &str,
+    description: &str,
+    check: Option<&CheckResult>,
+    checking: bool,
+) {
+    let state = match check {
+        Some(CheckResult::Success { .. }) => Indicator::Passed,
+        Some(CheckResult::Failed(_)) => Indicator::Failed,
+        None if checking => Indicator::Checking,
+        _ => Indicator::Idle,
+    };
+    let detail = check.map_or_else(
+        || description.to_string(),
+        |c| format!("{description}\n{}", check_detail(c)),
+    );
+    check_row(ui, name, state, &detail);
+}
+
+fn compact_options(ui: &mut Ui, name: &str, add: impl FnOnce(&mut Ui)) {
+    Frame::default()
+        .fill(CARD)
+        .stroke(Stroke::new(1.0_f32, LINE))
+        .corner_radius(16)
+        .inner_margin(Margin::symmetric(12, 6))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            let id = ui.make_persistent_id(name);
+            let mut expanded = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
+            let (row, button) =
+                ui.allocate_exact_size(Vec2::new(ui.available_width(), 42.), egui::Sense::click());
+            if button.clicked() {
+                expanded = !expanded;
+                ui.data_mut(|d| d.insert_temp(id, expanded));
+            }
+            button.widget_info(|| {
+                egui::WidgetInfo::selected(
+                    egui::WidgetType::CollapsingHeader,
+                    ui.is_enabled(),
+                    expanded,
+                    name,
+                )
+            });
+            let painter = ui.painter();
+            painter.rect_filled(row, 4., Color32::from_rgb(38, 40, 43));
+            if button.has_focus() || button.hovered() {
+                painter.rect_stroke(
+                    row,
+                    4.,
+                    Stroke::new(1.0_f32, AMBER),
+                    egui::StrokeKind::Inside,
+                );
+            }
+            painter.text(
+                row.left_center() + egui::vec2(11., 0.),
+                egui::Align2::LEFT_CENTER,
+                name,
+                egui::FontId::proportional(14.),
+                INK,
+            );
+            let center = row.right_center() - egui::vec2(17., 0.);
+            let sign = if expanded { -1. } else { 1. };
+            let points =
+                [(-4., -2.), (0., 2.), (4., -2.)].map(|(x, y)| center + egui::vec2(x, y * sign));
+            painter.add(egui::Shape::line(
+                points.to_vec(),
+                Stroke::new(1.0_f32, INK),
+            ));
+            button.on_hover_cursor(egui::CursorIcon::PointingHand);
+            if expanded {
+                add(ui);
+            }
+        });
+}
+
 fn windows_version() -> Option<String> {
     use winreg::{RegKey, enums::HKEY_LOCAL_MACHINE};
     let key = RegKey::predef(HKEY_LOCAL_MACHINE)
@@ -46,7 +167,7 @@ fn quality_summary(samples: &VecDeque<Option<u64>>) -> Option<String> {
     times.sort_unstable();
     let count = format!("Успешно {}/{}", times.len(), samples.len());
     let Some(&first) = times.first() else {
-        return Some(count);
+        return Some(format!("{count} · время не измерено"));
     };
     let low = times[(times.len() - 1) / 2];
     let median = low + (times[times.len() / 2] - low) / 2;
@@ -115,419 +236,530 @@ impl Desktop {
             });
         }
     }
+    fn telegram_check(&self) -> (Indicator, String) {
+        let active = self.snap.as_ref().is_some_and(|s| s.telegram);
+        if self.tg_busy {
+            (
+                Indicator::Checking,
+                "Проверяем ответ MTProto через прокси".into(),
+            )
+        } else if !active {
+            if self.snap.as_ref().is_some_and(|s| s.telegram_wanted) && !self.error.is_empty() {
+                (Indicator::Failed, self.error.clone())
+            } else {
+                (Indicator::Idle, "Ответ MTProto через прокси".into())
+            }
+        } else {
+            match self.tg_quality.back() {
+                Some(Some(ms)) => (
+                    Indicator::Passed,
+                    format!("Получен ответ MTProto за {ms} мс."),
+                ),
+                Some(None) => (
+                    Indicator::Unconfirmed,
+                    "Проверочный запрос не получил корректного ответа.".into(),
+                ),
+                None => (Indicator::Idle, "Сервер ещё не проверен.".into()),
+            }
+        }
+    }
+
+    fn telegram_description(&self) -> String {
+        let active = self.snap.as_ref().is_some_and(|s| s.telegram);
+        if active {
+            match self.tg_quality.back() {
+                Some(Some(_)) => "Прокси запущен на этом компьютере.".into(),
+                Some(None) => "Прокси запущен. Ответ на проверочный запрос не подтверждён.".into(),
+                None => "Прокси запущен.".into(),
+            }
+        } else if self.snap.as_ref().is_some_and(|s| s.telegram_wanted) {
+            "Ожидаем восстановления подключения.".into()
+        } else {
+            "Встроенный прокси выключен.".into()
+        }
+    }
+
     pub(super) fn connection(&mut self, ui: &mut Ui) {
+        ui.spacing_mut().item_spacing.y = 0.;
         let selected = self
             .snap
             .as_ref()
             .map(|s| s.prefs.effective_services(&s.state))
             .unwrap_or_default();
         let connected = self.connected();
-        let verified = self.snap.as_ref().is_some_and(|s| s.verified);
-        let busy = self.busy();
-        Frame::default()
-            .fill(HERO)
-            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(92, 73, 57)))
-            .corner_radius(15)
-            .inner_margin(16)
-            .show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                title(
-                    ui,
-                    if busy {
-                        "Выполняется операция"
-                    } else if !self.error.is_empty() {
-                        "Нужно ваше внимание"
-                    } else if verified {
-                        "Связь включена"
-                    } else if connected {
-                        "Соединение запущено"
-                    } else {
-                        "Связь выключена"
-                    },
-                );
-                let text = if !self.status.is_empty() {
-                    self.status.clone()
-                } else {
-                    "При подключении проверим выбранные сервисы.".into()
-                };
-                hint(ui, text);
-                if let Some(strategy) = self
-                    .snap
-                    .as_ref()
-                    .filter(|s| s.discord)
-                    .and_then(|s| s.state.last_strategy.as_deref())
-                {
-                    hint(ui, format!("Текущий альт · {strategy}"));
-                }
+        let waiting = self.snap.as_ref().is_some_and(|s| s.telegram_wanted);
+        let probing = self.connection_busy || (selected.telegram && self.tg_busy);
+        hero(ui, true, |ui| {
+            let heading = if probing {
+                "Проверяем подключение"
+            } else if !self.error.is_empty() {
+                "Нужно ваше внимание"
+            } else if connected {
+                "Связь включена"
+            } else if waiting {
+                "Ожидаем подключения"
+            } else {
+                "Связь выключена"
+            };
+            title(ui, heading);
+            ui.add_space(4.);
+            let status = if selected.telegram && !selected.uses_zapret() {
+                self.telegram_description()
+            } else if self.status.is_empty() {
+                "При подключении проверим выбранные сервисы.".into()
+            } else {
+                self.status.clone()
+            };
+            hint(ui, status);
+            if let Some(alt) = self
+                .snap
+                .as_ref()
+                .filter(|s| s.discord)
+                .and_then(|s| s.state.last_strategy.as_deref())
+            {
                 ui.add_space(4.);
-                let label = if busy {
-                    "Отменить"
-                } else if connected {
-                    "Отключить"
-                } else {
-                    "Подключить"
-                };
+                caption(ui, format!("Текущий альт · {alt}"), 12.);
+            }
+            ui.add_space(14.);
+            let label = if probing {
+                "Отменить и отключить"
+            } else if connected || waiting {
+                "Отключить"
+            } else {
+                "Подключить"
+            };
+            ui.add_enabled_ui(probing || !self.busy(), |ui| {
                 if action(ui, label, true) {
-                    if busy || connected {
-                        self.send(Command::Stop)
+                    if probing || connected || waiting {
+                        self.send(Command::Stop);
                     } else {
                         self.connect(false);
                     }
                 }
             });
-        ui.add_space(8.);
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Проверки").size(21.).strong());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                hint(ui, labels(&selected));
-            });
         });
-        let r = self.report.as_ref();
+        if probing {
+            ui.add_space(4.);
+            let (line, _) =
+                ui.allocate_exact_size(Vec2::new(ui.available_width(), 3.), egui::Sense::hover());
+            ui.painter().rect_filled(line, 1., AMBER);
+        }
+        ui.add_space(16.);
+        group_heading(ui, "Проверки", &labels(&selected), false);
+        ui.add_space(6.);
+        let result = self.report.as_ref();
         if selected.discord {
-            check_row(ui, "API", r.map(|r| &r.api), true);
-            check_row(ui, "Gateway", r.map(|r| &r.gateway), true);
-            check_row(ui, "Голосовой сервер", r.map(|r| &r.voice), true);
+            for (name, help, item) in [
+                ("API", "Доступ к Discord", result.map(|r| &r.api)),
+                (
+                    "Gateway",
+                    "Соединение с Discord",
+                    result.map(|r| &r.gateway),
+                ),
+                (
+                    "Голосовой сервер",
+                    "Ответ сервера канала",
+                    result.map(|r| &r.voice),
+                ),
+            ] {
+                service_row(ui, name, help, item, self.connection_busy);
+            }
         }
         if selected.youtube {
-            check_row(ui, "YouTube · HTTPS", r.map(|r| &r.youtube), true);
-            check_row(ui, "Googlevideo · HTTPS", r.map(|r| &r.google_video), true);
-            hint(
-                ui,
-                "Проверяется HTTPS. Для видео откройте ролик на YouTube.",
-            );
+            let (state, detail) = match result {
+                Some(r) => {
+                    let kind = if matches!(r.youtube, CheckResult::Failed(_))
+                        || matches!(r.google_video, CheckResult::Failed(_))
+                    {
+                        Indicator::Failed
+                    } else if matches!(r.youtube, CheckResult::Success { .. })
+                        && matches!(r.google_video, CheckResult::Success { .. })
+                    {
+                        Indicator::Passed
+                    } else {
+                        Indicator::Idle
+                    };
+                    (
+                        kind,
+                        format!(
+                            "Сайт YouTube · {}\nGooglevideo · {}\nВоспроизведение видео не проверяется.",
+                            check_detail(&r.youtube),
+                            check_detail(&r.google_video)
+                        ),
+                    )
+                }
+                None => (
+                    if self.connection_busy {
+                        Indicator::Checking
+                    } else {
+                        Indicator::Idle
+                    },
+                    "Сайт и Googlevideo. Воспроизведение видео не проверяется.".into(),
+                ),
+            };
+            check_row(ui, "YouTube · HTTPS", state, &detail);
         }
         if selected.telegram {
-            ui.horizontal(|ui| {
-                ui.strong("Telegram");
-                hint(
-                    ui,
-                    if self.snap.as_ref().is_some_and(|s| s.telegram) {
-                        if self.tg_status.is_empty() {
-                            "Прокси запущен"
-                        } else {
-                            self.tg_status.as_str()
-                        }
-                    } else {
-                        "Отключено"
-                    },
-                );
-            });
+            let (state, detail) = self.telegram_check();
+            check_row(ui, "Сервер Telegram", state, &detail);
         }
-        if let Some(summary) = quality_summary(&self.quality) {
-            hint(ui, summary);
+        ui.add_space(10.);
+        if let Some(text) = quality_summary(&self.quality) {
+            Frame::default()
+                .fill(Color32::from_rgb(37, 41, 44))
+                .corner_radius(12)
+                .inner_margin(10)
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(RichText::new(text).size(12.));
+                    ui.add_space(4.);
+                    caption(ui, "Время ответа сервисов за последние пять проверок.", 11.);
+                });
+            ui.add_space(12.);
+        }
+        if selected.youtube {
+            caption(
+                ui,
+                "Для YouTube проверяется ответ сайта и Googlevideo.",
+                11.,
+            );
+            ui.add_space(12.);
         }
         if selected.uses_zapret() {
-            ui.add_enabled_ui(!busy, |ui| {
+            ui.add_enabled_ui(!self.busy(), |ui| {
                 if action(ui, "Полный подбор", false) {
                     self.connect(true);
                 }
-                hint(
-                    ui,
-                    "Проверяются все альты. Во время подбора соединение может прерываться.",
-                );
-                if !self.error.is_empty() {
-                    if ui.button("Настройки подключения").clicked() {
-                        self.tab = Tab::Settings;
-                    }
-                    if ui.button("Повторить подбор").clicked() {
-                        self.manual = None;
-                        self.connect(false);
-                    }
+            });
+            ui.add_space(6.);
+            caption(
+                ui,
+                "Проверяет все альты для этой сети. Во время подбора связь может прерываться.",
+                11.,
+            );
+            ui.add_space(14.);
+            if !self.error.is_empty() && !probing {
+                if action(ui, "Повторить проверку", false) {
+                    self.manual = None;
+                    self.connect(false);
                 }
+                ui.add_space(12.);
+            }
+        }
+        if let Some(duration) = self.snap.as_ref().and_then(|s| s.uptime) {
+            ui.vertical_centered(|ui| {
+                caption(
+                    ui,
+                    format!("Подключено {} мин", duration.as_secs() / 60),
+                    12.,
+                )
             });
         }
-        section(ui, "История проверок", |ui| {
-            if self.history.is_empty() {
-                hint(ui, "Здесь появятся результаты подбора.");
-            }
-            for (name, detail, result) in self.history.iter().rev() {
-                ui.label(name);
-                hint(ui, detail);
-                if let Some(r) = result {
-                    for (label, check) in [
-                        ("API", &r.api),
-                        ("Gateway", &r.gateway),
-                        ("Голосовой сервер", &r.voice),
-                        ("YouTube", &r.youtube),
-                        ("Googlevideo", &r.google_video),
-                    ] {
-                        if let CheckResult::Failed(reason) = check {
-                            hint(ui, format!("{label} · {reason}"));
-                        }
-                    }
-                }
-                ui.separator();
-            }
-        });
         if let Some(stamp) = self
             .last_verified
             .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
         {
-            hint(
-                ui,
-                format!("Успешная проверка · {}", stamp.format("%d.%m %H:%M")),
-            );
+            ui.add_space(4.);
+            ui.vertical_centered(|ui| {
+                caption(
+                    ui,
+                    format!("Успешная проверка · {}", stamp.format("%d.%m %H:%M")),
+                    12.,
+                )
+            });
+            ui.add_space(12.);
         }
-        if let Some(duration) = self.snap.as_ref().and_then(|s| s.uptime) {
-            hint(ui, format!("Подключено {} мин", duration.as_secs() / 60));
-        }
+        compact_options(ui, "История проверок", |ui| {
+            ui.add_space(12.);
+            if self.history.is_empty() {
+                hint(ui, "После подключения здесь появятся результаты подбора.");
+            }
+            for (name, outcome, result) in self.history.iter().rev() {
+                ui.strong(name);
+                ui.add_space(4.);
+                ui.label(outcome);
+                if let Some(r) = result {
+                    ui.add_space(8.);
+                    for (service, c) in [
+                        ("API", &r.api),
+                        ("Gateway", &r.gateway),
+                        ("Голос", &r.voice),
+                        ("YouTube", &r.youtube),
+                        ("Googlevideo", &r.google_video),
+                    ] {
+                        if !matches!(c, CheckResult::Skipped) {
+                            caption(ui, format!("{service} · {}", check_detail(c)), 12.);
+                        }
+                    }
+                }
+                ui.add_space(10.);
+                ui.separator();
+                ui.add_space(10.);
+            }
+        });
     }
 
     pub(super) fn telegram(&mut self, ui: &mut Ui) {
+        ui.spacing_mut().item_spacing.y = 0.;
         let active = self.snap.as_ref().is_some_and(|s| s.telegram);
-        let busy = self.busy();
         let waiting = !active && self.snap.as_ref().is_some_and(|s| s.telegram_wanted);
-        card().show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            title(
-                ui,
-                if active {
-                    "Telegram подключён"
-                } else if waiting {
-                    "Восстанавливаем Telegram"
-                } else {
-                    "Telegram выключен"
-                },
-            );
-            hint(
-                ui,
-                if self.tg_status.is_empty() {
-                    "Встроенный прокси для Telegram.".to_owned()
-                } else {
-                    self.tg_status.clone()
-                },
-            );
-            ui.add_enabled_ui(!busy, |ui| {
-                if action(
-                    ui,
-                    if active {
-                        "Остановить прокси"
-                    } else if waiting {
-                        "Отменить повторы"
+        hero(ui, false, |ui| {
+            title(ui, "Прокси Telegram");
+            ui.add_space(4.);
+            hint(ui, self.telegram_description());
+            ui.add_space(14.);
+            let label = if self.tg_busy {
+                "Отменить"
+            } else if active {
+                "Остановить прокси"
+            } else if waiting {
+                "Отменить повторы"
+            } else {
+                "Запустить прокси"
+            };
+            ui.add_enabled_ui(!self.busy() || self.tg_busy, |ui| {
+                if action(ui, label, !active) {
+                    if self.tg_busy {
+                        self.cancel_telegram();
                     } else {
-                        "Запустить прокси"
-                    },
-                    true,
-                ) {
-                    self.send(Command::Telegram);
+                        self.send(Command::Telegram);
+                    }
                 }
             });
         });
+        ui.add_space(16.);
         if active {
-            if let Some(t) = self.snap.as_ref().map(|s| &s.state.telegram) {
-                hint(ui, format!("Локальный адрес · 127.0.0.1:{}", t.port));
-                match self.proxy_url.clone() {
-                    Some(url) => {
-                        if action(ui, "Открыть в Telegram", false) {
-                            if let Err(e) = launch_proxy(&url) {
-                                self.error = e.to_string();
+            let port = self.snap.as_ref().unwrap().state.telegram.port;
+            group_heading(ui, "Адрес прокси", &format!("127.0.0.1:{port}"), true);
+            ui.add_space(8.);
+            let url = self.proxy_url.clone();
+            ui.add_enabled_ui(url.is_some(), |ui| {
+                ui.columns(2, |cols| {
+                    if action(&mut cols[0], "Открыть в Telegram", true) {
+                        if let Some(url) = url.as_deref() {
+                            if let Err(error) = launch_proxy(url) {
+                                self.error = error.to_string();
                             }
                         }
-                        if ui.button("Скопировать ссылку").clicked() {
-                            ui.ctx().copy_text(url);
-                            self.tg_status = "Ссылка скопирована.".into();
+                    }
+                    if action(&mut cols[1], "Скопировать ссылку", false) {
+                        if let Some(url) = url {
+                            cols[1].ctx().copy_text(url);
+                            self.feedback = "Ссылка скопирована.".into();
                         }
                     }
-                    None => {
-                        ui.colored_label(RED, "Не удалось подготовить ссылку локального прокси.");
-                    }
-                }
+                });
+            });
+            if self.proxy_url.is_none() {
+                ui.colored_label(RED, "Не удалось подготовить ссылку локального прокси.");
             }
-            title(ui, "Проверка");
-            hint(
-                ui,
-                if self.tg_status.is_empty() {
-                    "Сервер ещё не проверен."
-                } else {
-                    self.tg_status.as_str()
-                },
-            );
-            ui.add_enabled_ui(!busy, |ui| {
+            ui.add_space(16.);
+        }
+        let time = if active {
+            self.tg_started.map_or_else(
+                || "Прокси запущен".into(),
+                |s| format!("Прокси работает {} мин", s.elapsed().as_secs() / 60),
+            )
+        } else {
+            String::new()
+        };
+        group_heading(ui, "Проверка", &time, false);
+        ui.add_space(4.);
+        let (state, detail) = self.telegram_check();
+        check_row(ui, "Сервер Telegram", state, &detail);
+        if active {
+            if let Some(summary) = quality_summary(&self.tg_quality) {
+                ui.add_space(6.);
+                caption(ui, summary, 12.);
+            }
+            ui.add_space(8.);
+            ui.add_enabled_ui(!self.busy(), |ui| {
                 if action(ui, "Проверить сервер", false) {
                     self.send(Command::ProbeTelegram);
                 }
             });
         }
-        section(ui, "Настройки Telegram", |ui| {
-            ui.add_enabled_ui(!busy && !active && !waiting, |ui| {
+        ui.add_space(16.);
+        compact_options(ui, "Настройки Telegram", |ui| {
+            ui.add_space(12.);
+            ui.add_enabled_ui(!self.busy() && !active && !waiting, |ui| {
                 ui.label("Локальный порт");
-                ui.add(egui::TextEdit::singleline(&mut self.port).char_limit(5));
+                ui.add_space(6.);
+                ui.add_sized(
+                    [ui.available_width(), 38.],
+                    egui::TextEdit::singleline(&mut self.port).char_limit(5),
+                );
+                ui.add_space(16.);
                 ui.checkbox(&mut self.tg_start, "Запускать вместе со «Связью»");
-                if action(ui, "Сохранить настройки", false) {
-                    match self.port.trim().parse::<u16>().ok().filter(|v| *v != 0) {
+                ui.add_space(16.);
+                if ui
+                    .add(egui::Button::new("Сохранить настройки").min_size(Vec2::new(150., 38.)))
+                    .clicked()
+                {
+                    match self.port.trim().parse::<u16>().ok().filter(|p| *p != 0) {
                         Some(port) => self.send(Command::SaveTelegram {
-                            port: port as i32,
+                            port: i32::from(port),
                             start_with_app: self.tg_start,
                         }),
                         None => self.error = "Порт должен быть от 1 до 65535.".into(),
                     }
                 }
             });
-            hint(
+            ui.add_space(12.);
+            caption(
                 ui,
-                format!(
-                    "Движок Telegram {} · встроен в приложение.",
-                    svyaz_telegram::VERSION
-                ),
+                format!("Встроенный движок Telegram {}", svyaz_telegram::VERSION),
+                12.,
             );
+            ui.add_space(8.);
+            caption(
+                ui,
+                "Перед изменением настроек остановите прокси. Движок обновляется вместе со «Связью».",
+                12.,
+            );
+            ui.add_space(8.);
         });
     }
 
     pub(super) fn settings(&mut self, ui: &mut Ui) {
         title(ui, "Настройки");
-        if self.notes {
-            card().show(ui, |ui| {
-                ui.strong(format!("Что нового в {}",running()));
-                hint(ui, "Приложение и встроенный Telegram-прокси перенесены на Rust. Настройки предыдущей версии используются при первом запуске.");
-                egui::CollapsingHeader::new("Ранее").show(ui, |ui| {
-                    hint(ui, include_str!("release_history.txt").trim_end());
-                });
-                if ui.button("Закрыть").clicked() {self.notes = false;}
+        let show_notes = std::mem::take(&mut self.notes);
+        if show_notes {
+            ui.data_mut(|data| {
+                for name in ["Запуск и обновления", "Что нового"] {
+                    data.insert_temp(disclosure_id(name), true);
+                }
             });
         }
-        card().show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.strong("Сервисы");
-            ui.add_enabled_ui(!self.busy() && !self.connected(), |ui| {
-                ui.checkbox(&mut self.services.discord, "Discord");
-                ui.checkbox(&mut self.services.youtube, "YouTube");
-                ui.checkbox(&mut self.services.telegram, "Telegram");
-                if ui.button("Сохранить выбор").clicked() {
+        hero_inner(ui, false, Margin::symmetric(17, 13), |ui| {
+            ui.spacing_mut().item_spacing.y = 0.;
+            ui.label(RichText::new("Сервисы подключения").font(semibold(21.)));
+            ui.add_space(4.);
+            hint(ui, "Что запускать кнопкой «Подключить»");
+            ui.add_space(4.);
+            let editable = !self.busy() && !self.connected();
+            ui.add_enabled_ui(editable, |ui| {
+                switch_row(ui, "Discord", &mut self.services.discord);
+                dividing_line(ui);
+                switch_row(ui, "YouTube", &mut self.services.youtube);
+                dividing_line(ui);
+                switch_row(ui, "Telegram", &mut self.services.telegram);
+                dividing_line(ui);
+                switch_row(ui, "Сообщать о длительном сбое", &mut self.quiet);
+                ui.add_space(6.);
+                if action(ui, "Сохранить выбор", true) {
                     self.send(Command::SaveServices(self.services.clone(), self.quiet));
                 }
             });
-        });
-        section(ui, "Запуск и обновления", |ui| {
-            let mut autostart = self.snap.as_ref().is_some_and(|s| s.autostart);
-            let mut update = self.snap.as_ref().is_none_or(|s| s.state.auto_update);
-            ui.add_enabled_ui(!self.busy(), |ui| {
-                if ui
-                    .checkbox(&mut autostart, "Запускать при входе в Windows")
-                    .changed()
-                {
-                    self.send(Command::Autostart(autostart));
-                }
-                if ui.checkbox(&mut update, "Автообновление").changed() {
-                    self.send(Command::AutoUpdate(update));
-                }
-                if ui
-                    .checkbox(&mut self.quiet, "Сообщать о длительном сбое")
-                    .changed()
-                {
-                    let applied = self
-                        .snap
-                        .as_ref()
-                        .map(|s| s.prefs.effective_services(&s.state))
-                        .unwrap_or_default();
-                    self.send(Command::SaveServices(applied, self.quiet));
-                }
-                if action(ui, "Проверить обновление «Связи»", false) {
-                    self.send(Command::CheckApp);
-                }
-                if let Some(version) = self
-                    .snap
-                    .as_ref()
-                    .and_then(|s| s.pending.as_ref())
-                    .map(|a| a.version.to_string())
-                {
-                    if action(ui, &format!("Установить версию {version}"), false) {
-                        self.send(Command::Apply);
-                    }
-                }
-                if let Some(version) = self
-                    .snap
-                    .as_ref()
-                    .and_then(|s| s.previous.as_ref().map(|p| p.version.to_string()))
-                {
-                    if action(ui, &format!("Вернуться к версии {version}"), false) {
-                        self.send(Command::Rollback);
-                    }
-                }
-            });
-            if ui.button("Что нового").clicked() {
-                self.notes = !self.notes;
+            if self.connected() {
+                ui.add_space(8.);
+                hint(ui, "Отключите связь, чтобы изменить выбор.");
             }
         });
-        section(ui, "Подключение", |ui| {
-            ui.label("Стратегия zapret");
-            let strategies = self
-                .snap
-                .as_ref()
-                .map(|s| s.strategies.clone())
-                .unwrap_or_default();
-            egui::ComboBox::from_id_salt("strategy")
-                .selected_text(self.manual.as_deref().unwrap_or("Автоматически"))
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.manual, None, "Автоматически");
-                    for s in strategies {
-                        ui.selectable_value(&mut self.manual, Some(s.clone()), s);
+        ui.scope(|ui| {
+            ui.spacing_mut().item_spacing.y = 0.;
+            disclosure(ui, "Запуск и обновления", |ui| {
+                let mut autostart = self.snap.as_ref().is_some_and(|s| s.autostart);
+                let mut update = self.snap.as_ref().is_none_or(|s| s.state.auto_update);
+                ui.add_enabled_ui(!self.busy(), |ui| {
+                    if switch_row(ui, "Подключать при входе в Windows", &mut autostart) {
+                        self.send(Command::Autostart(autostart));
                     }
+                    hint(ui, "Через 15 секунд после входа «Связь» запустится в трее.");
+                    if switch_row(ui, "Обновлять «Связь» и компоненты", &mut update) {
+                        self.send(Command::AutoUpdate(update));
+                    }
+                    hint(ui, "Проверка каждые 6 часов. Загруженная версия установится при следующем запуске.");
+                    if action(ui, "Проверить новую версию", false) {
+                        self.send(Command::CheckApp);
+                    }
+                    let pending = self.snap.as_ref().is_some_and(|s| s.pending.is_some());
+                    ui.add_enabled_ui(pending, |ui| {
+                        if action(ui, "Обновить и перезапустить", true) {
+                            self.send(Command::Apply);
+                        }
+                    });
+                    hint(ui, "Перезапуск ненадолго прервёт подключение. Предыдущая версия и настройки сохранятся.");
                 });
-            ui.label("Голосовой сервер Discord");
-            ui.add(
-                egui::TextEdit::singleline(&mut self.voice)
-                    .hint_text("имя.discord.media:порт")
-                    .char_limit(255),
-            );
-            hint(ui, "Оставьте поле пустым для поиска в журнале Discord.");
-        });
-        section(ui, "Игры", |ui| {
-            const MODES: [&str; 4] = ["Выключен", "TCP и UDP", "Только TCP", "Только UDP"];
-            ui.add_enabled_ui(
-                !self.busy() && !self.snap.as_ref().is_some_and(|s| s.discord),
-                |ui| {
-                    egui::ComboBox::from_id_salt("filter")
-                        .selected_text(
-                            MODES
-                                .get(self.game.mode as usize)
-                                .copied()
-                                .unwrap_or("Неизвестно"),
-                        )
+                disclosure(ui, "Что нового", |ui| {
+                    let heading = ui.strong(format!("Связь {}", running()));
+                    if show_notes { heading.scroll_to_me(Some(egui::Align::Center)); }
+                    hint(ui, "Приложение и встроенный Telegram-прокси перенесены на Rust. Настройки предыдущей версии используются при первом запуске.");
+                    disclosure(ui, "Предыдущие выпуски", |ui| hint(ui, include_str!("release_history.txt").trim_end()));
+                });
+                if let Some(version) = self.snap.as_ref().and_then(|s| s.previous.as_ref()).map(|s| s.version.to_string()) {
+                    disclosure(ui, "Откат версии", |ui| {
+                        hint(ui, "Откат перезапустит приложение и выключит автообновление. Настройки сохранятся.");
+                        ui.add_enabled_ui(!self.busy(), |ui| {
+                            if action(ui, &format!("Вернуться к версии {version}"), false) { self.send(Command::Rollback); }
+                        });
+                    });
+                }
+                ui.add_enabled_ui(!self.busy(), |ui| {
+                    if action(ui, "Выйти из «Связи»", false) { self.send(Command::Quit); }
+                });
+            });
+            disclosure(ui, "Параметры подключения", |ui| {
+                ui.label("Стратегия");
+                let strategies = self.snap.as_ref().map(|s| s.strategies.clone()).unwrap_or_default();
+                egui::ComboBox::from_id_salt("strategy")
+                    .width(ui.available_width())
+                    .selected_text(self.manual.as_deref().unwrap_or("Автоматически"))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.manual, None, "Автоматически");
+                        for s in strategies { ui.selectable_value(&mut self.manual, Some(s.clone()), s); }
+                    });
+                hint(ui, "Проверка проходит при подключении. После сна и смены сети рабочий альт сохраняется.");
+                ui.label("Голосовой сервер Discord · необязательно");
+                ui.add_sized([ui.available_width(), 38.], egui::TextEdit::singleline(&mut self.voice).char_limit(255));
+                hint(ui, "Оставьте поле пустым для поиска в журнале Discord. Если адрес ещё не появился, войдите в голосовой канал. Формат адреса — имя.discord.media:порт.");
+            });
+            disclosure(ui, "Игры", |ui| {
+                const MODES: [&str; 4] = ["Выключен", "TCP и UDP", "Только TCP", "Только UDP"];
+                ui.add_enabled_ui(!self.busy() && !self.snap.as_ref().is_some_and(|s|s.discord), |ui| {
+                    ui.label("Режим");
+                    egui::ComboBox::from_id_salt("filter").width(ui.available_width())
+                        .selected_text(MODES.get(self.game.mode as usize).copied().unwrap_or("Неизвестно"))
                         .show_ui(ui, |ui| {
-                            for (i, t) in MODES.iter().enumerate() {
+                            for (i,t) in MODES.iter().enumerate() {
                                 ui.selectable_value(&mut self.game.mode, i as i32, *t);
                             }
                         });
-                    ui.label("Порты TCP");
-                    ui.add(egui::TextEdit::singleline(&mut self.game.tcp_ports).char_limit(2048));
-                    ui.label("Порты UDP");
-                    ui.add(egui::TextEdit::singleline(&mut self.game.udp_ports).char_limit(2048));
-                    if action(ui, "Сохранить Game Filter", false) {
-                        self.send(Command::SaveGame(self.game.clone()));
-                    }
-                },
-            );
-        });
-        section(ui, "Диагностика", |ui| {
-            hint(
-                ui,
-                "В отчёт входят версия, состояние сервисов и результаты проверок.",
-            );
-            if action(ui, "Сохранить отчёт", false) {
-                self.diagnostics();
-            }
-        });
-        section(ui, "Обслуживание zapret", |ui| {
-            if let Some(name) = self
-                .snap
-                .as_ref()
-                .and_then(|s| s.state.last_strategy.as_deref())
-            {
-                hint(ui, format!("Последний выбранный альт · {name}"));
-            }
-            ui.add_enabled_ui(!self.busy(), |ui| {
-                if action(ui, "Обновить альты", false) {
-                    self.send(Command::CheckPackage);
+                    disclosure(ui, "Диапазоны портов", |ui| {
+                        ui.label("TCP");
+                        ui.add_sized([ui.available_width(),38.], egui::TextEdit::singleline(&mut self.game.tcp_ports).char_limit(2048));
+                        ui.label("UDP");
+                        ui.add_sized([ui.available_width(),38.], egui::TextEdit::singleline(&mut self.game.udp_ports).char_limit(2048));
+                        hint(ui, "По умолчанию 1024–65535. Перечислите порты и диапазоны через запятую.");
+                    });
+                    hint(ui, "Фильтр обрабатывает выбранные порты для сетей из IPSet Flowseal. Проверьте подключение в самой игре.");
+                    if action(ui, "Сохранить Game Filter", false) { self.send(Command::SaveGame(self.game.clone())); }
+                });
+            });
+            disclosure(ui, "Диагностика", |ui| {
+                hint(ui, "В отчёт входят версия, состояние сервисов и результаты проверок.");
+                if action(ui, "Сохранить отчёт", false) { self.diagnostics(); }
+            });
+            disclosure(ui, "Обслуживание zapret", |ui| {
+                if let Some(name) = self.snap.as_ref().and_then(|s| s.state.last_strategy.as_deref()) {
+                    hint(ui, format!("Последний выбранный альт · {name}"));
+                } else if self.snap.as_ref().is_none_or(|s| s.state.active_package.is_none()) {
+                    hint(ui, "Пакет ещё не загружен");
                 }
-                if action(ui, "Сбросить кэш zapret", false) {
-                    self.send(Command::InspectReset);
-                }
+                ui.add_enabled_ui(!self.busy(), |ui| {
+                    if action(ui, "Обновить альты", false) { self.send(Command::CheckPackage); }
+                    ui.add_space(6.);
+                    card().show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.label(RichText::new("Полный сброс zapret").font(semibold(18.)));
+                        hint(ui, "Сброс выгрузит WinDivert и удалит его службу, пакеты и списки zapret. Затем «Связь» скачает свежую копию и начнёт подбор.");
+                        let reset = egui::Button::new(RichText::new("Сбросить кэш zapret").color(RED).strong()).corner_radius(12);
+                        if ui.add_sized([ui.available_width(),40.],reset).clicked() { self.send(Command::InspectReset); }
+                    });
+                });
             });
         });
-        if !self.busy() && ui.button("Выйти из «Связи»").clicked() {
-            self.send(Command::Quit);
-        }
     }
 
     fn diagnostics(&mut self) {
@@ -590,21 +822,72 @@ impl Desktop {
                 }
             }
         }
-        if self.journal.is_empty() {
-            hint(
-                ui,
-                "Здесь появятся результаты проверок и сообщения приложения.",
-            );
+        if self.journal.trim().is_empty() {
+            hero(ui, false, |ui| {
+                ui.horizontal_top(|ui| {
+                    ui.spacing_mut().item_spacing.x = 12.;
+                    let (icon, _) =
+                        ui.allocate_exact_size(egui::vec2(19., 23.), egui::Sense::hover());
+                    let glyph = egui::Rect::from_min_max(
+                        icon.min + egui::vec2(1., 3.),
+                        icon.max - egui::vec2(1., 0.),
+                    );
+                    let stroke = Stroke::new(1.5_f32, AMBER);
+                    ui.painter()
+                        .rect_stroke(glyph, 0, stroke, egui::StrokeKind::Inside);
+                    for y in [glyph.top() + 6.5, glyph.top() + 12.] {
+                        ui.painter().line_segment(
+                            [
+                                egui::pos2(glyph.left() + 4., y),
+                                egui::pos2(glyph.right() - 4., y),
+                            ],
+                            stroke,
+                        );
+                    }
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 4.;
+                        ui.label(RichText::new("Записей пока нет").font(semibold(21.)));
+                        hint(
+                            ui,
+                            "Здесь появятся результаты проверок, обновления и сообщения zapret.",
+                        );
+                    });
+                });
+            });
         } else {
-            if ui.button("Скопировать журнал").clicked() {
-                ui.ctx().copy_text(self.journal.clone());
-            }
             hint(ui, "Выделите записи и нажмите Ctrl+C, чтобы скопировать.");
-            ui.add(
-                egui::Label::new(RichText::new(&self.journal).monospace().size(12.))
-                    .wrap()
-                    .selectable(true),
-            );
+            let h = ui.available_height();
+            card()
+                .inner_margin(egui::Margin {
+                    left: 12,
+                    right: 4,
+                    top: 8,
+                    bottom: 8,
+                })
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    egui::ScrollArea::vertical()
+                        .id_salt("journal-entries")
+                        .max_height((h - 18.).max(1.))
+                        .auto_shrink([false, false])
+                        .stick_to_bottom(true)
+                        .show(ui, |ui| {
+                            let mut text = self.journal.as_str();
+                            let entries = egui::TextEdit::multiline(&mut text)
+                                .font(egui::FontId::monospace(13.))
+                                .text_color(INK)
+                                .frame(false)
+                                .desired_rows(1)
+                                .desired_width(f32::INFINITY)
+                                .margin(egui::Margin::symmetric(10, 5));
+                            ui.add(entries).context_menu(|ui| {
+                                if ui.button("Скопировать журнал").clicked() {
+                                    ui.ctx().copy_text(self.journal.clone());
+                                    ui.close_menu();
+                                }
+                            });
+                        });
+                });
         }
     }
 
@@ -634,4 +917,131 @@ impl Desktop {
             }
         }
     }
+}
+
+fn dividing_line(ui: &mut Ui) {
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.), egui::Sense::hover());
+    ui.painter()
+        .hline(rect.x_range(), rect.center().y, Stroke::new(1.0_f32, LINE));
+}
+
+fn switch_row(ui: &mut Ui, label: &str, value: &mut bool) -> bool {
+    let (row, mut response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 30.), egui::Sense::click());
+    if response.clicked() {
+        *value = !*value;
+        response.mark_changed();
+    }
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *value, label)
+    });
+    ui.painter().text(
+        row.left_center(),
+        egui::Align2::LEFT_CENTER,
+        label,
+        semibold(14.),
+        INK,
+    );
+    let track = egui::Rect::from_center_size(
+        egui::pos2(row.right() - 19., row.center().y),
+        egui::vec2(38., 22.),
+    );
+    ui.painter().rect_filled(
+        track,
+        11,
+        if *value {
+            GREEN
+        } else {
+            Color32::from_rgb(47, 52, 54)
+        },
+    );
+    let focus = response.has_focus() || response.hovered();
+    let outline = if focus {
+        AMBER
+    } else if *value {
+        GREEN
+    } else {
+        MUTED
+    };
+    ui.painter().rect_stroke(
+        track,
+        11,
+        Stroke::new(1.0_f32, outline),
+        egui::StrokeKind::Inside,
+    );
+    let x = if *value {
+        track.right() - 10.5
+    } else {
+        track.left() + 10.5
+    };
+    ui.painter().circle_filled(
+        egui::pos2(x, track.center().y),
+        7.,
+        if *value { BG } else { MUTED },
+    );
+    response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .changed()
+}
+
+fn disclosure_id(label: &str) -> egui::Id {
+    egui::Id::new(("svyaz-disclosure", label))
+}
+
+fn disclosure(ui: &mut Ui, name: &str, body: impl FnOnce(&mut Ui)) {
+    let id = disclosure_id(name);
+    let mut expanded = ui.data(|data| data.get_temp::<bool>(id)).unwrap_or(false);
+    let (row, response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 38.), egui::Sense::click());
+    if response.clicked() {
+        expanded = !expanded;
+        ui.data_mut(|data| data.insert_temp(id, expanded));
+    }
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::CollapsingHeader,
+            ui.is_enabled(),
+            expanded,
+            name,
+        )
+    });
+    let focus = response.has_focus() || response.hovered();
+    let color = if focus { AMBER } else { INK };
+    ui.painter().text(
+        row.left_center() + egui::vec2(2., 0.),
+        egui::Align2::LEFT_CENTER,
+        name,
+        semibold(14.),
+        color,
+    );
+    let c = egui::pos2(row.right() - 13., row.center().y);
+    let arrows = if expanded {
+        [(-4., -2.), (0., 2.), (4., -2.)]
+    } else {
+        [(-2., -4.), (2., 0.), (-2., 4.)]
+    };
+    ui.painter().add(egui::Shape::line(
+        arrows
+            .into_iter()
+            .map(|(x, y)| c + egui::vec2(x, y))
+            .collect(),
+        Stroke::new(1.5_f32, if focus { AMBER } else { MUTED }),
+    ));
+    response.on_hover_cursor(egui::CursorIcon::PointingHand);
+    if expanded {
+        egui::Frame::default()
+            .inner_margin(egui::Margin {
+                left: 2,
+                right: 2,
+                top: 6,
+                bottom: 14,
+            })
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.spacing_mut().item_spacing.y = 8.;
+                body(ui);
+            });
+    }
+    dividing_line(ui);
 }
