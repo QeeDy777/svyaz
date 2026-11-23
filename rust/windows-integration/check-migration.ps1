@@ -152,6 +152,15 @@ public static class MigrationWindow {
                     }
                     $max = ($scores | Measure-Object -Maximum).Maximum
                     if ($max -ge 2 -and $scores[$i] -eq $max -and @($scores | Where-Object {$_ -eq $max}).Count -eq 1) {
+                        # The title must remain readable on the dark header with Windows in Light mode.
+                        $lightPixels = 0
+                        for ($x=[int]($size.Right*0.125); $x -lt [int]($size.Right*0.235); $x++) {
+                            for ($y=[int]($size.Right*0.024); $y -lt [int]($size.Right*0.082); $y++) {
+                                $p = $image.GetPixel($x,$y)
+                                if ($p.R -ge 190 -and $p.G -ge 190 -and $p.B -ge 190) { $lightPixels++ }
+                            }
+                        }
+                        Assert ($lightPixels -ge 15) 'The application title has readable light glyphs on the dark header'
                         $image.Save($path,[Drawing.Imaging.ImageFormat]::Png)
                         $verified = $true
                         break

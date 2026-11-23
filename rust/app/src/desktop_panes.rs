@@ -387,6 +387,7 @@ impl Desktop {
             });
         }
         card().show(ui, |ui| {
+            ui.set_width(ui.available_width());
             ui.strong("Сервисы");
             ui.add_enabled_ui(!self.busy() && !self.connected(), |ui| {
                 ui.checkbox(&mut self.services.discord, "Discord");

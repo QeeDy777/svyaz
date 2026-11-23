@@ -69,6 +69,7 @@ fn configure(ctx: &egui::Context) {
         }
     }
     ctx.set_fonts(fonts);
+    ctx.set_theme(egui::ThemePreference::Dark);
     let mut s = (*ctx.style()).clone();
     s.visuals = egui::Visuals::dark();
     s.visuals.override_text_color = Some(INK);
@@ -90,7 +91,9 @@ fn configure(ctx: &egui::Context) {
         .insert(egui::TextStyle::Body, egui::FontId::proportional(14.0));
     s.text_styles
         .insert(egui::TextStyle::Button, egui::FontId::proportional(14.0));
-    ctx.set_style(s);
+    let s = Arc::new(s);
+    ctx.set_style_of(egui::Theme::Dark, s.clone());
+    ctx.set_style_of(egui::Theme::Light, s);
 }
 fn card() -> Frame {
     Frame::default()

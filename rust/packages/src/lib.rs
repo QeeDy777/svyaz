@@ -256,7 +256,11 @@ mod tests {
             argv,
             [format!(
                 "--ipset={}",
-                std::env::current_dir().unwrap().join(file).display()
+                std::env::current_dir()
+                    .unwrap()
+                    .join("GameFilter")
+                    .join("ipset-all.txt")
+                    .display()
             )]
         );
     }
