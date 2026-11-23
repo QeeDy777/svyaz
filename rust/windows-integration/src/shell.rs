@@ -53,7 +53,8 @@ pub fn install_root() -> io::Result<PathBuf> {
     Ok(folder(&FOLDERID_ProgramFiles)?.join("DiscordRoute"))
 }
 fn same(a: &Path, b: &Path) -> bool {
-    a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
+    let normalize = |p: &Path| p.to_string_lossy().replace('/', "\\").to_lowercase();
+    normalize(a) == normalize(b)
 }
 fn local(p: &Path) -> bool {
     matches!(p.components().next(),Some(Component::Prefix(prefix)) if matches!(prefix.kind(),Prefix::Disk(_)))
@@ -216,7 +217,12 @@ mod tests {
             assert_eq!(index, 0);
             assert!(same(&from_buf(&buf), &exe));
             link.GetPath(&mut buf, std::ptr::null_mut(), 0)?;
-            assert!(same(&from_buf(&buf), &launcher));
+            assert!(
+                same(&from_buf(&buf), &launcher),
+                "Shell target {:?}, expected {:?}",
+                from_buf(&buf),
+                launcher
+            );
             link.GetArguments(&mut buf)?;
             assert_eq!(from_buf(&buf), Path::new("--startup"));
         }
