@@ -62,6 +62,7 @@ pub enum Event {
     Checks(String, Outcome),
     Telegram(String),
     TelegramProbe(Option<u64>),
+    NetworkChanged { route: bool, telegram: bool },
     Error(String),
     ResetConfirm(Vec<(String, String)>),
     Notice(String),
@@ -149,10 +150,9 @@ struct Engine {
     pending: Option<InstalledApp>,
     autostart: bool,
     last_result: Option<ProbeResult>,
-    network: Option<String>,
+    network: super::recovery::NetworkProfile,
     recovery: super::recovery::Recovery,
     tg_recovery: super::recovery::Recovery,
-    last_tick: Instant,
 }
 impl Engine {
     fn new(install: PathBuf, data: PathBuf, tx: Sender<Event>, ctx: egui::Context) -> Self {
@@ -169,10 +169,9 @@ impl Engine {
             pending: None,
             autostart: false,
             last_result: None,
-            network: None,
+            network: Default::default(),
             recovery: Default::default(),
             tg_recovery: Default::default(),
-            last_tick: Instant::now(),
         }
     }
     fn send(&self, e: Event) {
@@ -341,7 +340,8 @@ impl Engine {
             ctx.request_repaint();
         });
         match result {
-            Ok((runner, name)) => {
+            Ok((runner, name, network)) => {
+                self.network = super::recovery::NetworkProfile::new(network);
                 self.discord = Some(runner);
                 self.started = Some(Instant::now());
                 self.last_result = last;
@@ -424,24 +424,22 @@ impl Engine {
     fn tick(&mut self, cancel: &AtomicBool) -> io::Result<()> {
         let now = Instant::now();
         let net = svyaz_connection::network_identity();
-        let resumed = now.duration_since(self.last_tick) > Duration::from_secs(60);
-        self.last_tick = now;
         let online = super::runner::network_available();
         let tg_alive = self.tg.status()?.alive;
-        if net != self.network || resumed {
-            self.network = net;
+        if self.network.changed(net) {
+            let route = self.discord.as_ref().is_some_and(|r| r.is_running());
             self.last_result = None;
-            if self.discord.is_some() {
-                self.status("Сеть изменилась. Проверим при следующем подключении.");
-            } else {
-                self.recovery.network_changed(now);
-            }
-            if !tg_alive {
-                self.tg_recovery.network_changed(now);
-            } else {
-                self.send(Event::Telegram(
-                    "Сеть изменилась · локальный прокси работает".into(),
-                ));
+            self.recovery.network_changed(now, route);
+            self.tg_recovery.network_changed(now, tg_alive);
+            if route || tg_alive {
+                log(
+                    &self.data,
+                    "Сеть изменилась. Проверка при следующем подключении.",
+                );
+                self.send(Event::NetworkChanged {
+                    route,
+                    telegram: tg_alive,
+                });
             }
         }
         if self.discord.as_ref().is_some_and(|r| !r.is_running()) {
@@ -530,7 +528,8 @@ impl Engine {
         match cmd {
             Command::Quit => return Ok(Some(None)),
             Command::Initialize(args) => {
-                self.network = svyaz_connection::network_identity();
+                self.network =
+                    super::recovery::NetworkProfile::new(svyaz_connection::network_identity());
                 let updater = self.updater();
                 self.pending = updater
                     .read(State::Pending)?

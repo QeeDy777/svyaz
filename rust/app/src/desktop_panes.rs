@@ -266,7 +266,9 @@ impl Desktop {
 
     fn telegram_description(&self) -> String {
         let active = self.snap.as_ref().is_some_and(|s| s.telegram);
-        if active {
+        if active && self.network_notice_visible() {
+            "Сеть изменилась. Локальный прокси запущен.".into()
+        } else if active {
             match self.tg_quality.back() {
                 Some(Some(_)) => "Прокси запущен на этом компьютере.".into(),
                 Some(None) => "Прокси запущен. Ответ на проверочный запрос не подтверждён.".into(),
@@ -303,13 +305,16 @@ impl Desktop {
             };
             title(ui, heading);
             ui.add_space(4.);
-            let status = if selected.telegram && !selected.uses_zapret() {
-                self.telegram_description()
-            } else if self.status.is_empty() {
-                "При подключении проверим выбранные сервисы.".into()
-            } else {
-                self.status.clone()
-            };
+            let status =
+                if self.network_notice_visible() && self.snap.as_ref().is_some_and(|s| s.discord) {
+                    "Сеть изменилась. Текущий альт запущен.".into()
+                } else if selected.telegram && !selected.uses_zapret() {
+                    self.telegram_description()
+                } else if self.status.is_empty() {
+                    "При подключении проверим выбранные сервисы.".into()
+                } else {
+                    self.status.clone()
+                };
             hint(ui, status);
             if let Some(alt) = self
                 .snap

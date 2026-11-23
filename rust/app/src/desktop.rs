@@ -443,6 +443,7 @@ pub(super) fn show(
                 tg_busy: false,
                 tg_quality: VecDeque::new(),
                 tg_started: None,
+                network_notice_until: None,
                 snap: None,
                 status: String::new(),
                 error: String::new(),
@@ -499,6 +500,7 @@ struct Desktop {
     tg_busy: bool,
     tg_quality: VecDeque<Option<u64>>,
     tg_started: Option<std::time::Instant>,
+    network_notice_until: Option<std::time::Instant>,
     snap: Option<Box<Snapshot>>,
     status: String,
     error: String,
@@ -526,6 +528,10 @@ struct Desktop {
     notes: bool,
 }
 impl Desktop {
+    fn network_notice_visible(&self) -> bool {
+        self.network_notice_until
+            .is_some_and(|until| std::time::Instant::now() < until)
+    }
     fn send(&mut self, cmd: Command) {
         self.inflight += 1;
         let connecting = matches!(cmd, Command::Connect { .. } | Command::Reset(_));
@@ -537,6 +543,7 @@ impl Desktop {
         self.connection_busy |= connecting;
         self.tg_busy |= telegram;
         if !matches!(cmd, Command::MarkReleaseNotesSeen) {
+            self.network_notice_until = None;
             self.feedback.clear();
             self.error.clear();
         }
@@ -667,6 +674,19 @@ impl Desktop {
                 }
                 Event::Checks(name, outcome) => self.record(name, outcome),
                 Event::Telegram(s) => self.tg_status = s,
+                Event::NetworkChanged { route, telegram } => {
+                    if route {
+                        self.status =
+                            "Текущий альт запущен. Проверка доступна при подключении.".into();
+                    }
+                    if telegram {
+                        self.tg_quality.clear();
+                        self.tg_status = "Локальный прокси запущен.".into();
+                    }
+                    let duration = std::time::Duration::from_secs(5);
+                    self.network_notice_until = Some(std::time::Instant::now() + duration);
+                    ctx.request_repaint_after(duration);
+                }
                 Event::ResetConfirm(approved) => {
                     self.tab = Tab::Settings;
                     self.reset_confirm = Some(approved);
