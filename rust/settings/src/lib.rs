@@ -151,7 +151,7 @@ impl Default for TelegramSettings {
     }
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(PartialEq, Eq, Clone, Deserialize)]
 #[serde(default, rename_all = "PascalCase")]
 pub struct ServiceSelection {
     pub discord: bool,

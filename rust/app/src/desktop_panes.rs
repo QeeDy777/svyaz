@@ -620,7 +620,11 @@ impl Desktop {
                 dividing_line(ui);
                 switch_row(ui, "Сообщать о длительном сбое", &mut self.quiet);
                 ui.add_space(6.);
-                if action(ui, "Сохранить выбор", true) {
+                let changed = self.snap.as_ref().is_some_and(|s| {
+                    self.services != s.prefs.effective_services(&s.state)
+                        || self.quiet != s.prefs.quiet_notifications
+                });
+                if changed && action(ui, "Сохранить выбор", true) {
                     self.send(Command::SaveServices(self.services.clone(), self.quiet));
                 }
             });
@@ -784,7 +788,8 @@ impl Desktop {
             self.refresh_journal();
         }
         if self.journal.trim().is_empty() {
-            hero(ui, false, |ui| {
+            card().inner_margin(16).show(ui, |ui| {
+                ui.set_width(ui.available_width());
                 ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing.x = 12.;
                     let (icon, _) =

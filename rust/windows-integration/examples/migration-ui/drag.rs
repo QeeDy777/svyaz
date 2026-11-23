@@ -222,37 +222,46 @@ pub fn window_buttons(hwnd: HWND, pid: u32) -> io::Result<()> {
             x: rect.right - (from_right * scale).round() as i32,
             y: (23. * scale).round() as i32,
         };
-        if unsafe { ClientToScreen(hwnd, &mut point) } == 0
-            || unsafe { WindowFromPoint(point) } != hwnd
-        {
-            return Err(io::Error::other(
-                "Caption button outside the fixture window",
-            ));
+        let pack = |p: POINT| ((p.x as u16 as u32) | ((p.y as u16 as u32) << 16)) as isize;
+        let client = pack(point);
+        if unsafe { ClientToScreen(hwnd, &mut point) } == 0 {
+            return Err(io::Error::last_os_error());
         }
-        move_pointer(point.x, point.y)?;
-        check_focus(hwnd, pid)?;
-        mouse(MOUSEEVENTF_LEFTDOWN, 0, 0)?;
-        LeftButton(true).release()
+        // Only target the installed window. During restore, DWM can temporarily
+        // put a transition surface over its buttons on a hosted Windows desktop.
+        if unsafe { SendMessageW(hwnd, WM_NCHITTEST, 0, pack(point)) } != HTCLIENT as isize {
+            return Err(io::Error::other(format!(
+                "Button {from_right} is inside the drag region"
+            )));
+        }
+        for (message, buttons) in [(WM_MOUSEMOVE, 0), (WM_LBUTTONDOWN, 1), (WM_LBUTTONUP, 0)] {
+            if unsafe { PostMessageW(hwnd, message, buttons, client) } == 0 {
+                return Err(io::Error::last_os_error());
+            }
+        }
+        Ok(())
     };
-    let wait = |ready: &dyn Fn() -> bool| -> io::Result<()> {
+    let wait = |action: &str, ready: &dyn Fn() -> bool| -> io::Result<()> {
         let until = Instant::now() + Duration::from_secs(5);
         while !ready() {
             if Instant::now() >= until {
-                return Err(io::Error::other(
-                    "Caption button did not change window state",
-                ));
+                return Err(io::Error::other(format!("Caption failed to {action}")));
             }
             sleep(Duration::from_millis(30));
         }
         Ok(())
     };
     click(65.)?;
-    wait(&|| unsafe { IsIconic(hwnd) != 0 })?;
+    wait("minimize", &|| unsafe { IsIconic(hwnd) != 0 })?;
     unsafe {
         ShowWindowAsync(hwnd, SW_RESTORE);
     }
-    wait(&|| unsafe { IsIconic(hwnd) == 0 && IsWindowVisible(hwnd) != 0 })?;
+    wait("restore", &|| unsafe {
+        IsIconic(hwnd) == 0 && IsWindowVisible(hwnd) != 0
+    })?;
     super::capture::foreground(hwnd);
     click(31.)?;
-    wait(&|| unsafe { IsWindow(hwnd) != 0 && IsWindowVisible(hwnd) == 0 })
+    wait("hide to tray", &|| unsafe {
+        IsWindow(hwnd) != 0 && IsWindowVisible(hwnd) == 0
+    })
 }

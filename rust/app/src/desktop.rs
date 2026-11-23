@@ -165,7 +165,7 @@ fn configure(ctx: &egui::Context) {
     s.visuals.hyperlink_color = AMBER;
     s.spacing.item_spacing = Vec2::new(8.0, 8.0);
     s.spacing.button_padding = Vec2::new(12.0, 7.0);
-    s.spacing.scroll.floating = true;
+    s.spacing.scroll.floating = false;
     s.spacing.scroll.bar_width = 4.0;
     s.spacing.scroll.bar_inner_margin = 10.0;
     s.spacing.scroll.bar_outer_margin = 0.0;
