@@ -162,7 +162,8 @@ function Assert-Links($item) {
         Assert ($null -ne $itemLink) "Installer shortcut exists at $link"
         [string]$icon = ''
         $index = $itemLink.GetLink.GetIconLocation([ref]$icon)
-        Assert ($itemLink.ExtendedProperty('System.Link.TargetParsingPath') -eq $app) 'Shortcut still opens the stable launcher'
+        $target = $itemLink.ExtendedProperty('System.Link.TargetParsingPath')
+        Assert ($target -and [IO.Path]::GetFullPath($target) -eq [IO.Path]::GetFullPath($app)) 'Shortcut still opens the stable launcher'
         Assert ($index -eq 0 -and $icon -eq (Executable $item)) "Shortcut shows the icon of $($item.Version)"
     }
 }
@@ -293,6 +294,12 @@ try {
     Assert ([Convert]::ToBase64String([IO.File]::ReadAllBytes($preferences)) -ceq [Convert]::ToBase64String($afterPreferences)) 'Repair and uninstall preserved preferences bytes'
 }
 finally {
+    foreach ($log in 'startup-error.log','app.log') {
+        $source = Join-Path $data $log
+        if (Test-Path -LiteralPath $source) {
+            Copy-Item -LiteralPath $source -Destination (Join-Path $PWD "dist/rust-$log")
+        }
+    }
     foreach ($exe in $knownExecutables) { Stop-ExactProcess $exe }
     if ($staged -and (Test-Path -LiteralPath $staged)) { Remove-Item -LiteralPath $staged -Recurse -Force }
     foreach ($taskName in $ownTask,$foreignTask) {

@@ -225,6 +225,42 @@ mod tests {
         }
     }
     #[test]
+    fn load_preserves_the_previous_windows_scan_order() {
+        let package = tempfile::tempdir().unwrap();
+        for name in ["general.bat", "general (ALT).bat", "general (ALT2).bat"] {
+            fs::write(
+                package.path().join(name),
+                r#"start "" "%BIN%winws.exe" --new"#,
+            )
+            .unwrap();
+        }
+        let strategies = strategy::load(package.path(), |_| {}).unwrap();
+        let names: Vec<_> = strategies.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["general (ALT)", "general (ALT2)", "general"]);
+    }
+    #[test]
+    fn game_ipset_keeps_its_location_when_the_runner_changes_directory() {
+        let file = Path::new("GameFilter/ipset-all.txt");
+        let filter = svyaz_settings::GameFilterSettings {
+            mode: 1,
+            ..Default::default()
+        };
+        let argv = strategy::arguments(
+            r#"start "" "%BIN%winws.exe" --ipset="%LISTS%ipset-all.txt""#,
+            Path::new("package"),
+            &filter,
+            Some(file),
+        )
+        .unwrap();
+        assert_eq!(
+            argv,
+            [format!(
+                "--ipset={}",
+                std::env::current_dir().unwrap().join(file).display()
+            )]
+        );
+    }
+    #[test]
     fn ranges_and_quoted_paths() {
         assert!(svyaz_settings::normalize_ports("65536").is_err());
         assert_eq!(

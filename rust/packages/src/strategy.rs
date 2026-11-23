@@ -92,7 +92,7 @@ pub fn arguments(
                 && resolved.eq_ignore_ascii_case(&format!("--ipset={lists}ipset-all.txt"))
             {
                 if let Some(file) = ipset {
-                    return Ok(format!("--ipset={}", file.display()));
+                    return Ok(format!("--ipset={}", std::path::absolute(file)?.display()));
                 }
             }
             Ok(resolved)
@@ -131,7 +131,8 @@ pub fn load(root: &Path, mut log: impl FnMut(String)) -> io::Result<Vec<Strategy
             Err(e) => log(format!("{name}: {e}")),
         }
     }
-    items.sort_by_key(|s| s.name.to_lowercase());
+    // The Windows client compares filenames including ".bat", so general.bat follows general (ALT).bat.
+    items.sort_by_cached_key(|s| format!("{}.bat", s.name.to_lowercase()));
     if items.is_empty() {
         return Err(invalid("В пакете нет совместимых стратегий."));
     }
