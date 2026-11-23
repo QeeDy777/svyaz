@@ -238,7 +238,7 @@ fn valid_pq_reply(reply: &[u8], nonce: &[u8; 16]) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     fn hex<const N: usize>(text: &str) -> [u8; N] {
         assert_eq!(text.len(), N * 2);
@@ -336,37 +336,46 @@ mod tests {
         }
     }
 
+    pub(crate) async fn respond_to_probe(
+        mut server: impl AsyncRead + AsyncWrite + Unpin,
+        secret: Option<&[u8; 16]>,
+        correct_nonce: bool,
+    ) {
+        let mut header = [0; 64];
+        server.read_exact(&mut header).await.unwrap();
+        let (mut incoming, mut outgoing) = ciphers(&header, secret);
+        incoming.apply_keystream(&mut header);
+        assert_eq!(header[56..60], PADDED);
+        assert_eq!(header[60..62], 2_i16.to_le_bytes());
+        let mut len = [0; 4];
+        server.read_exact(&mut len).await.unwrap();
+        incoming.apply_keystream(&mut len);
+        let mut payload = vec![0; u32::from_le_bytes(len) as usize];
+        assert!((40..=55).contains(&payload.len()));
+        server.read_exact(&mut payload).await.unwrap();
+        incoming.apply_keystream(&mut payload);
+        assert_eq!(payload[..8], [0; 8]);
+        assert_eq!(payload[16..20], 20_u32.to_le_bytes());
+        assert_eq!(payload[20..24], 0xbe7e8ef1_u32.to_le_bytes());
+        let mut reply = vec![0; 4 + 56];
+        reply[..4].copy_from_slice(&56_u32.to_le_bytes());
+        reply[20..24].copy_from_slice(&36_u32.to_le_bytes());
+        reply[24..28].copy_from_slice(&0x05162463_u32.to_le_bytes());
+        reply[28..44].copy_from_slice(&payload[24..40]);
+        if !correct_nonce {
+            reply[28] ^= 0xff;
+        }
+        outgoing.apply_keystream(&mut reply);
+        server.write_all(&reply).await.unwrap();
+        server.flush().await.unwrap();
+    }
+
     #[tokio::test]
     async fn probe_requires_an_answer_from_the_dc_to_its_own_request() {
         let secret = [0x26; 16];
         for correct_nonce in [true, false] {
-            let (client, mut server) = tokio::io::duplex(1024);
-            let respond = async {
-                let mut header = [0; 64];
-                server.read_exact(&mut header).await.unwrap();
-                let mut session = open(header, &secret, false).unwrap();
-                assert_eq!((session.tag, session.dc), (PADDED, 2));
-                let mut len = [0; 4];
-                server.read_exact(&mut len).await.unwrap();
-                session.client_in.apply_keystream(&mut len);
-                let mut payload = vec![0; u32::from_le_bytes(len) as usize];
-                assert!((40..=55).contains(&payload.len()));
-                server.read_exact(&mut payload).await.unwrap();
-                session.client_in.apply_keystream(&mut payload);
-                assert_eq!(payload[..8], [0; 8]);
-                assert_eq!(payload[16..20], 20_u32.to_le_bytes());
-                assert_eq!(payload[20..24], 0xbe7e8ef1_u32.to_le_bytes());
-                let mut reply = vec![0; 4 + 56];
-                reply[..4].copy_from_slice(&56_u32.to_le_bytes());
-                reply[20..24].copy_from_slice(&36_u32.to_le_bytes());
-                reply[24..28].copy_from_slice(&0x05162463_u32.to_le_bytes());
-                reply[28..44].copy_from_slice(&payload[24..40]);
-                if !correct_nonce {
-                    reply[28] ^= 0xff;
-                }
-                session.client_out.apply_keystream(&mut reply);
-                server.write_all(&reply).await.unwrap();
-            };
+            let (client, server) = tokio::io::duplex(1024);
+            let respond = respond_to_probe(server, Some(&secret), correct_nonce);
             let (result, ()) = tokio::join!(probe(client, &secret, 2), respond);
             assert_eq!(result.is_ok(), correct_nonce);
         }

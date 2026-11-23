@@ -27,6 +27,37 @@ fn check_row(ui: &mut Ui, name: &str, check: Option<&CheckResult>, enabled: bool
     });
     ui.separator();
 }
+fn windows_version() -> Option<String> {
+    use winreg::{RegKey, enums::HKEY_LOCAL_MACHINE};
+    let key = RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
+        .ok()?;
+    let major: u32 = key.get_value("CurrentMajorVersionNumber").ok()?;
+    let minor: u32 = key.get_value("CurrentMinorVersionNumber").ok()?;
+    let build: String = key.get_value("CurrentBuildNumber").ok()?;
+    Some(format!("{major}.{minor}.{build}"))
+}
+
+fn quality_summary(samples: &VecDeque<Option<u64>>) -> Option<String> {
+    if samples.is_empty() {
+        return None;
+    }
+    let mut times = samples.iter().filter_map(|p| *p).collect::<Vec<_>>();
+    times.sort_unstable();
+    let count = format!("Успешно {}/{}", times.len(), samples.len());
+    let Some(&first) = times.first() else {
+        return Some(count);
+    };
+    let low = times[(times.len() - 1) / 2];
+    let median = low + (times[times.len() / 2] - low) / 2;
+    let spread = if times.len() == 1 {
+        "нужен ещё замер".into()
+    } else {
+        format!("разброс {} мс", times[times.len() - 1] - first)
+    };
+    Some(format!("Отклик {median} мс · {spread} · {count}"))
+}
+
 fn labels(s: &ServiceSelection) -> String {
     let mut names = Vec::new();
     if s.discord {
@@ -64,16 +95,21 @@ fn launch_proxy(url: &str) -> io::Result<()> {
 
 impl Desktop {
     pub(super) fn update_banner(&mut self, ui: &mut Ui) {
-        if let Some(version) = self
+        if let Some((id, version)) = self
             .snap
             .as_ref()
-            .and_then(|s| s.pending.as_ref().map(|a| a.version.to_string()))
+            .and_then(|s| s.pending.as_ref())
+            .filter(|a| self.dismissed.as_ref() != Some(&a.id))
+            .map(|a| (a.id.clone(), a.version.to_string()))
         {
             card().show(ui, |ui| {
                 ui.strong(format!("Версия {version} готова"));
                 ui.add_enabled_ui(!self.busy(), |ui| {
                     if action(ui, "Обновить и перезапустить", true) {
                         self.send(Command::Apply);
+                    }
+                    if ui.button("Позже").clicked() {
+                        self.dismissed = Some(id);
                     }
                 });
             });
@@ -115,6 +151,14 @@ impl Desktop {
                     "При подключении проверим выбранные сервисы.".into()
                 };
                 hint(ui, text);
+                if let Some(strategy) = self
+                    .snap
+                    .as_ref()
+                    .filter(|s| s.discord)
+                    .and_then(|s| s.state.last_strategy.as_deref())
+                {
+                    hint(ui, format!("Текущий альт · {strategy}"));
+                }
                 ui.add_space(4.);
                 let label = if busy {
                     "Отменить"
@@ -158,17 +202,37 @@ impl Desktop {
                 hint(
                     ui,
                     if self.snap.as_ref().is_some_and(|s| s.telegram) {
-                        "Прокси запущен"
+                        if self.tg_status.is_empty() {
+                            "Прокси запущен"
+                        } else {
+                            self.tg_status.as_str()
+                        }
                     } else {
                         "Отключено"
                     },
                 );
             });
         }
+        if let Some(summary) = quality_summary(&self.quality) {
+            hint(ui, summary);
+        }
         if selected.uses_zapret() {
             ui.add_enabled_ui(!busy, |ui| {
                 if action(ui, "Полный подбор", false) {
                     self.connect(true);
+                }
+                hint(
+                    ui,
+                    "Проверяются все альты. Во время подбора соединение может прерываться.",
+                );
+                if !self.error.is_empty() {
+                    if ui.button("Настройки подключения").clicked() {
+                        self.tab = Tab::Settings;
+                    }
+                    if ui.button("Повторить подбор").clicked() {
+                        self.manual = None;
+                        self.connect(false);
+                    }
                 }
             });
         }
@@ -176,12 +240,35 @@ impl Desktop {
             if self.history.is_empty() {
                 hint(ui, "Здесь появятся результаты подбора.");
             }
-            for (name, detail) in self.history.iter().rev() {
+            for (name, detail, result) in self.history.iter().rev() {
                 ui.label(name);
                 hint(ui, detail);
+                if let Some(r) = result {
+                    for (label, check) in [
+                        ("API", &r.api),
+                        ("Gateway", &r.gateway),
+                        ("Голосовой сервер", &r.voice),
+                        ("YouTube", &r.youtube),
+                        ("Googlevideo", &r.google_video),
+                    ] {
+                        if let CheckResult::Failed(reason) = check {
+                            hint(ui, format!("{label} · {reason}"));
+                        }
+                    }
+                }
                 ui.separator();
             }
         });
+        if let Some(stamp) = self
+            .last_verified
+            .as_ref()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        {
+            hint(
+                ui,
+                format!("Успешная проверка · {}", stamp.format("%d.%m %H:%M")),
+            );
+        }
         if let Some(duration) = self.snap.as_ref().and_then(|s| s.uptime) {
             hint(ui, format!("Подключено {} мин", duration.as_secs() / 60));
         }
@@ -190,12 +277,15 @@ impl Desktop {
     pub(super) fn telegram(&mut self, ui: &mut Ui) {
         let active = self.snap.as_ref().is_some_and(|s| s.telegram);
         let busy = self.busy();
+        let waiting = !active && self.snap.as_ref().is_some_and(|s| s.telegram_wanted);
         card().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             title(
                 ui,
                 if active {
                     "Telegram подключён"
+                } else if waiting {
+                    "Восстанавливаем Telegram"
                 } else {
                     "Telegram выключен"
                 },
@@ -213,6 +303,8 @@ impl Desktop {
                     ui,
                     if active {
                         "Остановить прокси"
+                    } else if waiting {
+                        "Отменить повторы"
                     } else {
                         "Запустить прокси"
                     },
@@ -258,7 +350,7 @@ impl Desktop {
             });
         }
         section(ui, "Настройки Telegram", |ui| {
-            ui.add_enabled_ui(!busy && !active, |ui| {
+            ui.add_enabled_ui(!busy && !active && !waiting, |ui| {
                 ui.label("Локальный порт");
                 ui.add(egui::TextEdit::singleline(&mut self.port).char_limit(5));
                 ui.checkbox(&mut self.tg_start, "Запускать вместе со «Связью»");
@@ -284,6 +376,16 @@ impl Desktop {
 
     pub(super) fn settings(&mut self, ui: &mut Ui) {
         title(ui, "Настройки");
+        if self.notes {
+            card().show(ui, |ui| {
+                ui.strong(format!("Что нового в {}",running()));
+                hint(ui, "Приложение и встроенный Telegram-прокси перенесены на Rust. Настройки предыдущей версии используются при первом запуске.");
+                egui::CollapsingHeader::new("Ранее").show(ui, |ui| {
+                    hint(ui, include_str!("release_history.txt").trim_end());
+                });
+                if ui.button("Закрыть").clicked() {self.notes = false;}
+            });
+        }
         card().show(ui, |ui| {
             ui.strong("Сервисы");
             ui.add_enabled_ui(!self.busy() && !self.connected(), |ui| {
@@ -308,7 +410,10 @@ impl Desktop {
                 if ui.checkbox(&mut update, "Автообновление").changed() {
                     self.send(Command::AutoUpdate(update));
                 }
-                if ui.checkbox(&mut self.quiet, "Тихие уведомления").changed() {
+                if ui
+                    .checkbox(&mut self.quiet, "Сообщать о длительном сбое")
+                    .changed()
+                {
                     let applied = self
                         .snap
                         .as_ref()
@@ -322,6 +427,16 @@ impl Desktop {
                 if let Some(version) = self
                     .snap
                     .as_ref()
+                    .and_then(|s| s.pending.as_ref())
+                    .map(|a| a.version.to_string())
+                {
+                    if action(ui, &format!("Установить версию {version}"), false) {
+                        self.send(Command::Apply);
+                    }
+                }
+                if let Some(version) = self
+                    .snap
+                    .as_ref()
                     .and_then(|s| s.previous.as_ref().map(|p| p.version.to_string()))
                 {
                     if action(ui, &format!("Вернуться к версии {version}"), false) {
@@ -331,15 +446,6 @@ impl Desktop {
             });
             if ui.button("Что нового").clicked() {
                 self.notes = !self.notes;
-            }
-            if self.notes {
-                hint(
-                    ui,
-                    format!(
-                        "{} · Перенос приложения на Rust. Настройки и стандартные ярлыки совместимы с 0.13.3.",
-                        running()
-                    ),
-                );
             }
         });
         section(ui, "Подключение", |ui| {
@@ -436,21 +542,22 @@ impl Desktop {
             Some(CheckResult::Failed(_)) => Some(false),
             _ => None,
         };
-        let r = self.report.as_ref();
+        let r = self.last_probe.as_ref();
         let report = serde_json::json!({
-            "AppVersion":running().to_string(),"Platform":"Windows",
+            "AppVersion":running().to_string(),"WindowsVersion":windows_version(),
+            "LastDiscordError":null, "LastTelegramError":null,
             "DiscordProcessRunning":self.snap.as_ref().is_some_and(|s|s.discord),
             "DiscordVerified":self.snap.as_ref().is_some_and(|s|s.verified),
             "TelegramProcessRunning":self.snap.as_ref().is_some_and(|s|s.telegram),
             "ApiPassed":one(r.map(|r|&r.api)),"GatewayPassed":one(r.map(|r|&r.gateway)),"VoicePassed":one(r.map(|r|&r.voice)),
             "YouTubeSitePassed":one(r.map(|r|&r.youtube)),"YouTubeGoogleVideoPassed":one(r.map(|r|&r.google_video)),
-            "LastSuccessfulCheck":self.last_verified,"TestedStrategies":self.scan_count
+            "LastSuccessfulCheck":self.last_verified,"TestedStrategies":self.history.len()
         });
         let saved = serde_json::to_vec_pretty(&report)
             .map_err(io::Error::other)
             .and_then(|b| fs::write(path, b));
         match saved {
-            Ok(()) => self.status = "Отчёт сохранён.".into(),
+            Ok(()) => self.feedback = "Отчёт сохранён.".into(),
             Err(e) => self.error = e.to_string(),
         }
     }
@@ -515,6 +622,13 @@ impl Desktop {
         if let Some(confirmed) = command {
             self.reset_confirm = None;
             if confirmed {
+                self.manual = None;
+                self.voice.clear();
+                self.quality.clear();
+                self.history.clear();
+                self.report = None;
+                self.last_probe = None;
+                self.last_verified = None;
                 self.send(Command::Reset(approved));
             }
         }

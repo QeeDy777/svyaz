@@ -1,10 +1,6 @@
-name: Windows checks
+name: Windows 0.13.3 reference checks
 on:
-  push:
-    branches: [main, fix/telegram-probe-status]
-  pull_request:
   workflow_dispatch:
-
 permissions:
   contents: read
 
@@ -14,6 +10,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: 356ef2afdf1bc487d1d1e71818a4a13226f953c6
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'

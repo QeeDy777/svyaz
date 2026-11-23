@@ -49,6 +49,21 @@ fn brand() -> io::Result<egui::IconData> {
     })
 }
 fn configure(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    if let Some(directory) = std::env::var_os("WINDIR") {
+        let file = PathBuf::from(directory).join("Fonts").join("segoeui.ttf");
+        if let Ok(bytes) = fs::read(file) {
+            fonts
+                .font_data
+                .insert("Segoe UI".into(), egui::FontData::from_owned(bytes).into());
+            fonts
+                .families
+                .entry(egui::FontFamily::Proportional)
+                .or_default()
+                .insert(0, "Segoe UI".into());
+        }
+    }
+    ctx.set_fonts(fonts);
     let mut s = (*ctx.style()).clone();
     s.visuals = egui::Visuals::dark();
     s.visuals.override_text_color = Some(INK);
@@ -96,6 +111,93 @@ fn action(ui: &mut Ui, text: &str, primary: bool) -> bool {
         button = button.fill(AMBER).stroke(Stroke::NONE);
     }
     ui.add_sized([ui.available_width(), 38.0], button).clicked()
+}
+
+fn navigation(ui: &mut Ui, tab: Tab, label: &str, selected: bool) -> egui::Response {
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), 49.), egui::Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), selected, label)
+    });
+    let p = ui.painter();
+    let fg = if selected { AMBER } else { MUTED };
+    if selected || response.hovered() || response.has_focus() {
+        p.rect_filled(rect, 8., CARD);
+    }
+    if response.has_focus() {
+        p.rect_stroke(
+            rect,
+            8.,
+            Stroke::new(1.0_f32, AMBER),
+            egui::StrokeKind::Inside,
+        );
+    }
+    let xy = |x: f32, y: f32| egui::pos2(rect.center().x - 10. + x, rect.top() + 4. + y);
+    let stroke = Stroke::new(1.5_f32, fg);
+    let line = |x, y, xx, yy| {
+        p.line_segment([xy(x, y), xy(xx, yy)], stroke);
+    };
+    let outline = |x, y, xx, yy| {
+        p.rect_stroke(
+            egui::Rect::from_min_max(xy(x, y), xy(xx, yy)),
+            1.,
+            stroke,
+            egui::StrokeKind::Inside,
+        );
+    };
+    match tab {
+        Tab::Connection => {
+            for x in [2., 12.] {
+                for y in [2., 12.] {
+                    outline(x, y, x + 6., y + 6.);
+                }
+            }
+        }
+        Tab::Telegram => {
+            let pts = [
+                (2., 9.),
+                (19., 2.),
+                (15., 18.),
+                (9., 13.),
+                (6., 16.),
+                (6.5, 11.),
+                (2., 9.),
+            ];
+            for w in pts.windows(2) {
+                line(w[0].0, w[0].1, w[1].0, w[1].1);
+            }
+            line(6.5, 11., 15., 6.);
+            line(15., 6., 9., 13.);
+        }
+        Tab::Settings => {
+            line(2., 5., 5., 5.);
+            line(9., 5., 18., 5.);
+            outline(5., 2., 9., 8.);
+            line(2., 14., 12., 14.);
+            line(16., 14., 18., 14.);
+            outline(12., 11., 16., 17.);
+        }
+        Tab::Journal => {
+            outline(3., 2., 17., 18.);
+            line(6., 7., 14., 7.);
+            line(6., 11., 13., 11.);
+        }
+    }
+    p.text(
+        xy(10., 30.),
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::FontId::proportional(12.),
+        fg,
+    );
+    if selected {
+        p.rect_filled(
+            egui::Rect::from_center_size(xy(10., 42.), Vec2::new(18., 2.)),
+            1.,
+            AMBER,
+        );
+    }
+    response
 }
 
 pub(super) fn show(
@@ -156,7 +258,12 @@ pub(super) fn show(
                 proxy_url: None,
                 report: None,
                 history: VecDeque::new(),
-                scan_count: 0,
+                last_probe: None,
+                new_probe: false,
+                quality: VecDeque::new(),
+                dismissed: None,
+                notes_shown: false,
+                feedback: String::new(),
                 last_verified: None,
                 reset_confirm: None,
                 port: "1443".into(),
@@ -201,8 +308,13 @@ struct Desktop {
     tg_status: String,
     proxy_url: Option<String>,
     report: Option<ProbeResult>,
-    history: VecDeque<(String, String)>,
-    scan_count: usize,
+    history: VecDeque<(String, String, Option<ProbeResult>)>,
+    last_probe: Option<ProbeResult>,
+    new_probe: bool,
+    quality: VecDeque<Option<u64>>,
+    dismissed: Option<String>,
+    notes_shown: bool,
+    feedback: String,
     last_verified: Option<String>,
     reset_confirm: Option<Vec<(String, String)>>,
     port: String,
@@ -219,7 +331,10 @@ struct Desktop {
 impl Desktop {
     fn send(&mut self, cmd: Command) {
         self.inflight += 1;
-        self.error.clear();
+        if !matches!(cmd, Command::MarkReleaseNotesSeen) {
+            self.feedback.clear();
+            self.error.clear();
+        }
         self.worker.send(cmd);
     }
     fn busy(&self) -> bool {
@@ -233,8 +348,15 @@ impl Desktop {
             return;
         }
         self.report = None;
-        self.last_verified = None;
-        self.scan_count = 0;
+        self.quality.clear();
+        if full
+            || self
+                .snap
+                .as_ref()
+                .is_some_and(|s| s.state.last_strategy.as_deref().is_none_or(str::is_empty))
+        {
+            self.manual = None;
+        }
         self.history.clear();
         self.status = "Подключаем выбранные сервисы…".into();
         self.send(Command::Connect {
@@ -244,6 +366,7 @@ impl Desktop {
         });
     }
     fn record(&mut self, name: String, event: Outcome) {
+        let mut checks = None;
         let detail = match event {
             Outcome::Starting {
                 position,
@@ -253,9 +376,9 @@ impl Desktop {
                 let s = if confirmation {
                     "Подтверждение".into()
                 } else {
-                    self.scan_count += 1;
                     format!("Подбор {position}/{total}")
                 };
+                self.quality.clear();
                 self.status = format!("{s} · {name}");
                 return;
             }
@@ -273,11 +396,19 @@ impl Desktop {
                 } else {
                     format!("Проверка {pass}/{passes}")
                 };
+                self.quality.push_back(result.sample_ms());
+                if self.quality.len() > 5 {
+                    self.quality.pop_front();
+                }
+                checks = Some(result.clone());
+                self.new_probe = true;
+                self.last_probe = Some(result.clone());
                 self.report = Some(result);
                 text
             }
         };
-        self.history.push_back((name, detail));
+        self.history.retain(|(previous, _, _)| previous != &name);
+        self.history.push_back((name, detail, checks));
         while self.history.len() > 256 {
             self.history.pop_front();
         }
@@ -296,7 +427,11 @@ impl Desktop {
         while let Some(action) = self.tray.try_next() {
             match action {
                 TrayAction::Open => self.show_window(ctx),
-                TrayAction::Connect | TrayAction::Repair if !self.busy() => self.connect(false),
+                TrayAction::Connect if !self.busy() => self.connect(false),
+                TrayAction::Repair if !self.busy() => {
+                    self.manual = None;
+                    self.connect(false);
+                }
                 TrayAction::Update if !self.busy() => self.send(Command::CheckApp),
                 TrayAction::Disconnect => self.send(Command::Stop),
                 TrayAction::ToggleTelegram if !self.busy() => self.send(Command::Telegram),
@@ -310,7 +445,10 @@ impl Desktop {
     fn receive(&mut self, ctx: &egui::Context) {
         while let Ok(event) = self.worker.events.try_recv() {
             match event {
-                Event::Status(s) => self.status = s,
+                Event::Status(s) => {
+                    self.feedback.clone_from(&s);
+                    self.status = s;
+                }
                 Event::Error(e) => {
                     self.error = e;
                 }
@@ -341,12 +479,21 @@ impl Desktop {
                         self.port = next.state.telegram.port.to_string();
                         self.tg_start = next.state.telegram.start_with_app;
                     }
-                    if next.verified && !self.snap.as_ref().is_some_and(|s| s.verified) {
+                    if next.verified
+                        && (self.new_probe || !self.snap.as_ref().is_some_and(|s| s.verified))
+                    {
                         self.last_verified = Some(chrono::Local::now().to_rfc3339());
                     }
-                    if !next.discord && !self.busy() {
+                    if self
+                        .snap
+                        .as_ref()
+                        .is_some_and(|old| old.verified && !next.verified)
+                        && self.report.as_ref().is_some_and(ProbeResult::success)
+                    {
+                        self.quality.clear();
                         self.report = None;
                     }
+                    self.new_probe = false;
                     self.tray.status(
                         next.state.last_strategy.as_deref().unwrap_or(""),
                         next.verified,
@@ -409,6 +556,20 @@ impl eframe::App for Desktop {
         self.initialized(ctx);
         self.receive(ctx);
         self.on_tray(ctx);
+        if self.visible && !self.notes_shown && self.snap.is_some() {
+            self.notes_shown = true;
+            let version = running().to_string();
+            if self
+                .snap
+                .as_ref()
+                .and_then(|s| s.prefs.last_seen_app_version.as_deref())
+                != Some(version.as_str())
+            {
+                self.notes = true;
+                self.tab = Tab::Settings;
+                self.send(Command::MarkReleaseNotesSeen);
+            }
+        }
         if self.reset_confirm.is_none() {
             for (key, tab) in [
                 (egui::Key::Num1, Tab::Connection),
@@ -440,15 +601,13 @@ impl eframe::App for Desktop {
                     ui.label(RichText::new("Связь").size(19.).strong());
                     ui.label(RichText::new(running().to_string()).color(MUTED).size(12.));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(
-                            RichText::new(if self.connected() {
-                                "● Подключено"
-                            } else {
-                                "○ Отключено"
-                            })
-                            .color(if self.connected() { GREEN } else { MUTED })
-                            .size(12.),
-                        );
+                        let (label, color) = match self.snap.as_deref() {
+                            Some(s) if s.verified => ("● Подключено", GREEN),
+                            Some(s) if s.discord => ("○ Без проверки", AMBER),
+                            Some(s) if s.telegram => ("● Telegram", GREEN),
+                            _ => ("○ Отключено", MUTED),
+                        };
+                        ui.label(RichText::new(label).color(color).size(12.));
                     });
                 });
             });
@@ -468,21 +627,7 @@ impl eframe::App for Desktop {
                 ui.columns(4, |cols| {
                     for (col, (id, label)) in cols.iter_mut().zip(tabs) {
                         let active = self.tab == id;
-                        if col
-                            .add_sized(
-                                [col.available_width(), 38.],
-                                egui::Button::new(
-                                    RichText::new(label).size(12.).color(if active {
-                                        AMBER
-                                    } else {
-                                        MUTED
-                                    }),
-                                )
-                                .fill(if active { CARD } else { BG })
-                                .stroke(Stroke::NONE),
-                            )
-                            .clicked()
-                        {
+                        if navigation(col, id, label, active).clicked() {
                             self.tab = id;
                         }
                     }
@@ -501,6 +646,9 @@ impl eframe::App for Desktop {
                     .show(ui, |ui| {
                         if !self.error.is_empty() {
                             ui.colored_label(RED, self.error.clone());
+                        }
+                        if self.tab != Tab::Connection && !self.feedback.is_empty() {
+                            hint(ui, &self.feedback);
                         }
                         self.update_banner(ui);
                         match self.tab {

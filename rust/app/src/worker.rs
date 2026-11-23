@@ -46,6 +46,7 @@ pub enum Command {
     SaveGame(GameFilterSettings),
     AutoUpdate(bool),
     Autostart(bool),
+    MarkReleaseNotesSeen,
     CheckApp,
     CheckPackage,
     Rollback,
@@ -71,6 +72,7 @@ pub struct Snapshot {
     pub discord: bool,
     pub verified: bool,
     pub telegram: bool,
+    pub telegram_wanted: bool,
     pub autostart: bool,
     pub pending: Option<InstalledApp>,
     pub previous: Option<InstalledApp>,
@@ -199,6 +201,7 @@ impl Engine {
             verified: self.discord.as_ref().is_some_and(|r| r.is_running())
                 && self.last_result.as_ref().is_some_and(ProbeResult::success),
             telegram: self.tg.status()?.alive,
+            telegram_wanted: self.tg_recovery.wanted,
             previous: self.previous.clone(),
             pending: self.pending.clone(),
             strategies,
@@ -623,6 +626,10 @@ impl Engine {
                 s.auto_update = enable;
                 s.save(&self.data.join(SETTINGS_FILE))?;
                 self.next_updates = Instant::now();
+            }
+            Command::MarkReleaseNotesSeen => {
+                prefs.last_seen_app_version = Some(running().to_string());
+                prefs.save(&self.data.join(PREFERENCES_FILE))?;
             }
             Command::CheckApp => self.app_updates(true, cancel)?,
             Command::CheckPackage => self.packages(true, cancel)?,

@@ -6,13 +6,13 @@ Set-StrictMode -Version Latest
 if (-not $IsWindows) { throw 'Установщик собирается на Windows с Inno Setup 6.' }
 Push-Location (Join-Path $PSScriptRoot '..')
 try {
-    if (-not (Test-Path dist/win-x64/Связь.exe)) { throw 'Сначала выполните ./build.ps1.' }
-    $version = ([xml](Get-Content Directory.Build.props -Raw)).Project.PropertyGroup.Version
-    if ((Get-Item dist/win-x64/Связь.exe).VersionInfo.ProductVersion.Split('+')[0] -ne $version) {
-        throw 'Версия опубликованного EXE отличается от версии проекта.'
-    }
+    $stage = Join-Path $PWD 'dist/rust-candidate'
+    $exe = Join-Path $stage 'Связь.exe'
+    if (-not (Test-Path -LiteralPath $exe)) { throw 'Сначала выполните ./build.ps1.' }
+    $info = (Get-Item -LiteralPath $exe).VersionInfo
+    $version = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart)"
     # Signing is a separate release step; never label an unsigned installer as signed.
-    & $IsccPath "/DAppVersion=$version" /DVariant=unsigned installer/Svyaz.iss
+    & $IsccPath "/DAppVersion=$version" "/DAppFiles=$stage" /DVariant=unsigned installer/Svyaz.iss
     if ($LASTEXITCODE -ne 0) { throw 'Сборка установщика не прошла.' }
     $file = "dist/Svyaz-$version-win-x64-setup-unsigned.exe"
     $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()

@@ -1,4 +1,9 @@
-use std::io;
+use serde_json::{Map, Value};
+use std::{
+    fs,
+    io::{self, Read, Write},
+    path::Path,
+};
 use svyaz_settings::TelegramSettings;
 
 pub fn validate(settings: &TelegramSettings) -> io::Result<u16> {
@@ -46,15 +51,30 @@ pub fn proxy_url(settings: &TelegramSettings) -> io::Result<String> {
     ))
 }
 
-pub(crate) fn configuration(
-    root: &std::path::Path,
-    state: &svyaz_settings::AppState,
-) -> io::Result<String> {
-    use serde_json::{Map, Value, json};
-    use std::{
-        fs,
-        io::{Read, Write},
+fn read_config(path: &Path) -> io::Result<Map<String, Value>> {
+    let file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Map::new()),
+        Err(e) => return Err(e),
     };
+    let mut bytes = Vec::new();
+    file.take(65_537).read_to_end(&mut bytes)?;
+    if bytes.len() > 65_536 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Настройки Telegram слишком велики.",
+        ));
+    }
+    serde_json::from_slice(bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes)).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Неверный формат настроек Telegram.",
+        )
+    })
+}
+
+pub(crate) fn configuration(root: &Path, state: &svyaz_settings::AppState) -> io::Result<String> {
+    use serde_json::json;
     let settings = &state.telegram;
     let port = validate(settings)?;
     if settings.secret.is_empty() {
@@ -88,29 +108,7 @@ pub(crate) fn configuration(
             }
         }
     }
-    let mut values = match fs::File::open(&source) {
-        Ok(file) => {
-            let mut bytes = Vec::new();
-            file.take(65537).read_to_end(&mut bytes)?;
-            if bytes.len() > 65536 {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Настройки Telegram слишком велики.",
-                ));
-            }
-            serde_json::from_slice::<Map<String, Value>>(
-                bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes),
-            )
-            .map_err(|_| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Неверный формат настроек Telegram.",
-                )
-            })?
-        }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Map::new(),
-        Err(e) => return Err(e),
-    };
+    let mut values = read_config(&source)?;
     for (key, value) in [
         ("host", json!("127.0.0.1")),
         ("port", json!(port)),
@@ -137,6 +135,28 @@ mod tests {
     use super::*;
     use std::fs;
     use svyaz_settings::AppState;
+    #[test]
+    fn link_uses_stored_local_secret_and_optional_tls_domain() {
+        let root = tempfile::tempdir().unwrap();
+        let mut state = AppState::default();
+        state.telegram.secret = "ab".repeat(16);
+        let base = proxy_url(&state.telegram).unwrap();
+        assert_eq!(proxy_url_at(root.path(), &state).unwrap(), base);
+        let directory = root.path().join("Telegram/TgWsProxy_data");
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("config.json");
+        fs::write(&path, b"\xef\xbb\xbf{\"fake_tls_domain\":\"app.local\"}").unwrap();
+        assert_eq!(
+            proxy_url_at(root.path(), &state).unwrap(),
+            format!(
+                "{}6170702e6c6f63616c",
+                base.replace("secret=dd", "secret=ee")
+            )
+        );
+        fs::write(path, r#"{"fake_tls_domain": "malformed.domain#fragment"}"#).unwrap();
+        assert!(proxy_url_at(root.path(), &state).is_err());
+    }
+
     #[test]
     fn legacy_config_migrates_once_and_retains_user_fields() {
         let dir = tempfile::tempdir().unwrap();
@@ -199,39 +219,12 @@ pub fn proxy_url_at(
     data_root: &std::path::Path,
     state: &svyaz_settings::AppState,
 ) -> io::Result<String> {
-    use std::{fmt::Write as _, fs, io::Read};
+    use std::fmt::Write as _;
     let base = proxy_url(&state.telegram)?;
-    let file = match fs::File::open(data_root.join("Telegram/TgWsProxy_data/config.json")) {
-        Ok(file) => file,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(base),
-        Err(e) => return Err(e),
-    };
-    let mut bytes = Vec::new();
-    file.take(65537).read_to_end(&mut bytes)?;
-    if bytes.len() > 65536 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Настройки Telegram слишком велики.",
-        ));
-    }
-    let value: serde_json::Value = serde_json::from_slice(&bytes)?;
-    let Some(domain) = value
-        .get("fake_tls_domain")
-        .and_then(|v| v.as_str())
-        .filter(|v| !v.is_empty())
-    else {
+    let values = read_config(&data_root.join("Telegram/TgWsProxy_data/config.json"))?;
+    let Some(domain) = crate::runtime_config::fake_tls_domain(&values)? else {
         return Ok(base);
     };
-    if domain.len() > 253
-        || !domain
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-'))
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Неверный домен Fake TLS.",
-        ));
-    }
     let mut link = base.replace("secret=dd", "secret=ee");
     for b in domain.bytes() {
         write!(&mut link, "{b:02x}").unwrap();

@@ -88,10 +88,6 @@ public static class MigrationWindow {
     }
     $tabs = 'connection','telegram','settings','journal'
     for ($i=0; $i -lt $tabs.Count; $i++) {
-        [uint32]$foregroundPid = 0
-        $null = [MigrationWindow]::GetWindowThreadProcessId([MigrationWindow]::GetForegroundWindow(),[ref]$foregroundPid)
-        Assert ($foregroundPid -eq $runtime.Id) 'Only the intended fixture UI receives keyboard input'
-        [Windows.Forms.SendKeys]::SendWait("^$($i+1)")
         $size = [MigrationWindow+Rect]::new()
         Assert ([MigrationWindow]::GetClientRect($hwnd,[ref]$size)) 'Native window has a client rectangle'
         Assert ($size.Right -ge 280 -and $size.Bottom -ge 320) 'The native layout has a visible client area'
@@ -101,6 +97,10 @@ public static class MigrationWindow {
         $deadline = [DateTime]::UtcNow.AddSeconds(5)
         $verified = $false
         do {
+            [uint32]$foregroundPid = 0
+            $null = [MigrationWindow]::GetWindowThreadProcessId([MigrationWindow]::GetForegroundWindow(),[ref]$foregroundPid)
+            if ($foregroundPid -ne $runtime.Id) { throw 'Only the intended fixture UI can receive keyboard input.' }
+            [Windows.Forms.SendKeys]::SendWait("^$($i+1)")
             Start-Sleep -Milliseconds 160
             foreach ($screen in $false,$true) {
                 $image = [Drawing.Bitmap]::new($size.Right,$size.Bottom)
@@ -152,6 +152,7 @@ function Assert-Runtime($item,[bool]$native) {
     if ($native) {
         $managedModules = @($runtime.Modules | Where-Object { $_.ModuleName -like 'python*.dll' -or $_.ModuleName -in @('coreclr.dll','wpfgfx_cor3.dll','PresentationNative_cor3.dll') })
         Assert ($managedModules.Count -eq 0) 'The candidate runs without loading CPython, the CLR or WPF'
+        Save-NativeTabs $runtime
     }
 }
 function Assert-Links($item) {
@@ -173,6 +174,31 @@ function Start-Handoff([string]$launcher) {
         throw 'Launcher did not complete the handoff'
     }
     Assert ($parent.ExitCode -eq 0) 'Parent launcher committed a successful handoff'
+}
+function Assert-TrayStartup([string]$nativeExe) {
+    # Isolate tray behavior from the network services; exercise the same child readiness event used in production.
+    $savedSettings = [IO.File]::ReadAllBytes($settings)
+    $savedPrefs = [IO.File]::ReadAllBytes($preferences)
+    $token = [guid]::NewGuid().ToString('N')
+    $ready = [Threading.EventWaitHandle]::new($false,[Threading.EventResetMode]::ManualReset,"Local\Svyaz-Update-$token")
+    try {
+        [IO.File]::WriteAllText($settings,$settingsSeed)
+        [IO.File]::WriteAllText($preferences,'{"Services":{"Discord":false,"YouTube":false,"Telegram":false},"QuietNotifications":true}')
+        $runtime = Start-Process $nativeExe -ArgumentList @('--startup','--parent-refreshes-shortcut-icons','--update-ready',$token) -PassThru
+        Assert ($ready.WaitOne(20000)) 'The logon runtime completed its real UI initialization'
+        $deadline = [DateTime]::UtcNow.AddSeconds(5)
+        do {
+            Start-Sleep -Milliseconds 100
+            $runtime.Refresh()
+            if ($runtime.HasExited) { throw 'The logon runtime exited instead of remaining in the tray.' }
+        } while ($runtime.MainWindowHandle -ne 0 -and [DateTime]::UtcNow -lt $deadline)
+        Assert ($runtime.MainWindowHandle -eq 0) 'A ready logon runtime keeps its main window hidden'
+    } finally {
+        Stop-ExactProcess $nativeExe
+        $ready.Dispose()
+        [IO.File]::WriteAllBytes($settings,$savedSettings)
+        [IO.File]::WriteAllBytes($preferences,$savedPrefs)
+    }
 }
 
 Assert ($version -gt [Version]'0.13.3') 'Native EXE has an updatable numeric Windows file version'
@@ -226,6 +252,7 @@ try {
     $savedPreferences = Get-Content $preferences -Raw | ConvertFrom-Json
     Assert ($savedPreferences.NetworkStrategies.'migration-network' -eq 'migration-alt') 'Network profile survives the upgrade'
     Assert ($savedPreferences.QuietNotifications -eq $true) 'Upgrade keeps quiet notifications enabled'
+    Assert-TrayStartup (Executable $next)
 
     # Seed a persisted older selection exactly as the previous updater would after user rollback.
     # Starting the actual Rust launcher now exercises Rust->WPF readiness, promotion and shortcut writes.

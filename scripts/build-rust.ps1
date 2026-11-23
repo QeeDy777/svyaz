@@ -1,12 +1,22 @@
 #requires -Version 7.4
 [CmdletBinding()]
-param([string]$IsccPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")
+param(
+    [string]$IsccPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+    [string]$CertificateThumbprint,
+    [string]$SignToolPath,
+    [uri]$TimestampUrl
+)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 Push-Location "$PSScriptRoot/.."
 try {
     if (-not $IsWindows) { throw 'Build the Windows x64 package on Windows.' }
     $version = (Select-String -Path rust/app/Cargo.toml -Pattern '^version = "(\d+\.\d+\.\d+)[^"]*"$').Matches[0].Groups[1].Value
+    if (($CertificateThumbprint -or $SignToolPath -or $TimestampUrl) -and
+        -not ($CertificateThumbprint -and $SignToolPath -and $TimestampUrl)) {
+        throw 'Укажите все три параметра подписи.'
+    }
+    $variant = if ($CertificateThumbprint) { 'signed' } else { 'unsigned' }
     $dist = Join-Path $PWD 'dist/rust-candidate'
     $cache = Join-Path $PWD 'dist/rust-compat'
     New-Item $cache -ItemType Directory -Force | Out-Null
@@ -32,6 +42,9 @@ try {
     try {
         $exe = Join-Path $work.FullName 'Связь.exe'
         Copy-Item target/x86_64-pc-windows-msvc/release/svyaz.exe $exe
+        if ($CertificateThumbprint) {
+            & ./scripts/sign-release.ps1 -PublishDirectory $work.FullName -CertificateThumbprint $CertificateThumbprint -SignToolPath $SignToolPath -TimestampUrl $TimestampUrl
+        }
         $info = (Get-Item -LiteralPath $exe).VersionInfo
         if ("$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart)" -ne $version) {throw 'Unexpected EXE version'}
         $zip = [IO.Compression.ZipFile]::OpenRead($archive)
@@ -48,11 +61,8 @@ try {
         if (Test-Path $dist) { Remove-Item -LiteralPath $dist -Recurse -Force }
         Move-Item -LiteralPath $work.FullName -Destination $dist
     } finally { if (Test-Path $work.FullName) {Remove-Item -LiteralPath $work.FullName -Recurse -Force} }
-    $output = "dist/Svyaz-$version-win-x64-unsigned.zip"
+    $output = "dist/Svyaz-$version-win-x64-$variant.zip"
     Compress-Archive "$dist/*" -DestinationPath $output -Force
-    & $IsccPath "/DAppVersion=$version" "/DAppFiles=$dist" '/DVariant=unsigned' installer/Svyaz.iss
-    if ($LASTEXITCODE) { throw 'Cannot compile native installer' }
-    foreach ($path in @($output,"dist/Svyaz-$version-win-x64-setup-unsigned.exe")) {
-        "$((Get-FileHash $path).Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($path))" | Set-Content "$path.sha256" -Encoding utf8NoBOM
-    }
+    & ./scripts/build-installer.ps1 -IsccPath $IsccPath
+    "$((Get-FileHash $output).Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($output))" | Set-Content "$output.sha256" -Encoding utf8NoBOM
 } finally { Pop-Location }

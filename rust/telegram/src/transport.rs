@@ -20,7 +20,12 @@ use tokio::{
 };
 use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream, client_async_with_config,
-    tungstenite::{Message, client::IntoClientRequest, protocol::WebSocketConfig},
+    tungstenite::{
+        Error as WsError, Message,
+        client::IntoClientRequest,
+        error::{ProtocolError, SubProtocolError},
+        protocol::WebSocketConfig,
+    },
 };
 
 type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -89,18 +94,30 @@ async fn ws_open(
     secure: bool,
     buffer: usize,
 ) -> io::Result<Ws> {
+    let address = (target, if secure { 443 } else { 80 });
+    ws_open_at(address, domain, sni, path, secure, buffer).await
+}
+
+async fn ws_open_at(
+    address: (&str, u16),
+    domain: &str,
+    sni: &str,
+    path: &str,
+    secure: bool,
+    buffer: usize,
+) -> io::Result<Ws> {
     if !valid_domain(domain) || !valid_domain(sni) {
         return Err(ioe("Недопустимое имя сервера."));
     }
-    let fut = async {
-        let tcp = TcpStream::connect((target, if secure { 443 } else { 80 })).await?;
+    let uri = format!("{}://{domain}{path}", if secure { "wss" } else { "ws" });
+    let handshake = async |binary: bool| -> Result<Ws, WsError> {
+        let tcp = TcpStream::connect(address).await?;
         tcp.set_nodelay(true)?;
         let sock = socket2::SockRef::from(&tcp);
         let _ = sock.set_send_buffer_size(buffer);
         let _ = sock.set_recv_buffer_size(buffer);
         let stream = if secure {
             let tls = native_tls::TlsConnector::new().map_err(ioe)?;
-            // Always verify the certificate for the negotiated TLS server name.
             MaybeTlsStream::NativeTls(
                 tokio_native_tls::TlsConnector::from(tls)
                     .connect(sni, tcp)
@@ -110,21 +127,32 @@ async fn ws_open(
         } else {
             MaybeTlsStream::Plain(tcp)
         };
-        let mut request = format!("{}://{domain}{path}", if secure { "wss" } else { "ws" })
-            .into_client_request()
-            .map_err(ioe)?;
-        request
-            .headers_mut()
-            .insert("Sec-WebSocket-Protocol", "binary".parse().unwrap());
+        let mut request = uri.as_str().into_client_request()?;
+        if binary {
+            request
+                .headers_mut()
+                .insert("Sec-WebSocket-Protocol", "binary".parse().unwrap());
+        }
         let options = WebSocketConfig::default()
             .max_frame_size(Some(LIMIT))
             .max_message_size(Some(LIMIT));
-        Ok(client_async_with_config(request, stream, Some(options))
+        client_async_with_config(request, stream, Some(options))
             .await
-            .map_err(ioe)?
-            .0)
+            .map(|(ws, _)| ws)
     };
-    timeout(Duration::from_secs(10), fut).await.map_err(ioe)?
+    timeout(Duration::from_secs(10), async {
+        match handshake(true).await {
+            // Some compatible endpoints omit the optional subprotocol. The first
+            // connection was consumed by the handshake; negotiate a fresh one.
+            Err(WsError::Protocol(ProtocolError::SecWebSocketSubProtocolError(
+                SubProtocolError::NoSubProtocol,
+            ))) => handshake(false).await,
+            result => result,
+        }
+    })
+    .await
+    .map_err(ioe)?
+    .map_err(ioe)
 }
 
 #[derive(Clone, Hash, PartialEq, Eq)]
@@ -437,6 +465,7 @@ async fn via_ws<S: AsyncRead + AsyncWrite + Unpin>(
                     session.relay_in.apply_keystream(&mut buf);
                     session.client_out.apply_keystream(&mut buf);
                     output.write_all(&buf).await?;
+                    output.flush().await?;
                 }
                 Message::Close(_) => break,
                 Message::Ping(_) | Message::Pong(_) => {}
@@ -470,6 +499,7 @@ async fn via_tcp<S: AsyncRead + AsyncWrite + Unpin>(
             decode.apply_keystream(&mut buf[..n]);
             encode.apply_keystream(&mut buf[..n]);
             w.write_all(&buf[..n]).await?;
+            w.flush().await?;
         }
     }
     tokio::select! {r=copy(&mut input,&mut remote_out,session.client_in,session.relay_out)=>r,r=copy(&mut remote_in,&mut output,session.relay_in,session.client_out)=>r}
@@ -579,3 +609,125 @@ mod tests {
         assert!(dc_ip(2, false).unwrap().parse::<std::net::IpAddr>().is_ok());
     }
 }
+
+#[cfg(test)]
+mod websocket_roundtrip {
+    use super::*;
+    use crate::protocol::Cipher;
+    use aes::cipher::KeyIvInit;
+    use tokio::net::TcpListener;
+
+    #[tokio::test]
+    async fn retries_only_when_the_server_omits_the_optional_binary_subprotocol() {
+        use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
+        for (protocol, good_accept, requests, success) in [
+            (Some("binary"), true, 1, true),
+            (None, true, 2, true),
+            (Some("text"), true, 1, false),
+            (None, false, 1, false),
+        ] {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+            let address = ("127.0.0.1", listener.local_addr().unwrap().port());
+            let peer = async {
+                for attempt in 0..requests {
+                    let (socket, _) = listener.accept().await.unwrap();
+                    tokio_tungstenite::accept_hdr_async(
+                        socket,
+                        |req: &Request, mut resp: Response| {
+                            assert_eq!(req.uri().path(), "/apiws");
+                            assert_eq!(
+                                req.headers().get("Sec-WebSocket-Protocol").is_some(),
+                                attempt == 0
+                            );
+                            if let Some(name) = protocol {
+                                resp.headers_mut()
+                                    .insert("Sec-WebSocket-Protocol", name.parse().unwrap());
+                            }
+                            if !good_accept {
+                                resp.headers_mut()
+                                    .insert("Sec-WebSocket-Accept", "mismatch".parse().unwrap());
+                            }
+                            Ok(resp)
+                        },
+                    )
+                    .await
+                    .unwrap();
+                }
+            };
+            let open = ws_open_at(address, "app.local", "app.local", "/apiws", false, 16_384);
+            let (result, ()) = timeout(Duration::from_secs(2), async { tokio::join!(open, peer) })
+                .await
+                .unwrap();
+            assert_eq!(result.is_ok(), success);
+        }
+    }
+
+    fn cipher(seed: u8) -> Cipher {
+        Cipher::new_from_slices(&[seed; 32], &[seed; 16]).unwrap()
+    }
+
+    #[tokio::test]
+    async fn fragmented_client_frames_and_websocket_replies_are_reencrypted() {
+        timeout(Duration::from_secs(5), async {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let peer = tokio::spawn(async move {
+                let (socket, _) = listener.accept().await.unwrap();
+                let mut peer = tokio_tungstenite::accept_async(socket).await.unwrap();
+                assert_eq!(
+                    peer.next().await.unwrap().unwrap().into_data().as_ref(),
+                    &[9; 64]
+                );
+                let mut decode = cipher(3);
+                for payload in [b"abcdefgh", b"ABCDEFGH"] {
+                    let mut data = peer.next().await.unwrap().unwrap().into_data().to_vec();
+                    decode.apply_keystream(&mut data);
+                    assert_eq!(&data[..4], &8u32.to_le_bytes());
+                    assert_eq!(&data[4..], payload);
+                }
+                let mut reply = b"answer from dc".to_vec();
+                cipher(4).apply_keystream(&mut reply);
+                peer.send(Message::Binary(reply.into())).await.unwrap();
+                peer.close(None).await.unwrap();
+            });
+            let raw = MaybeTlsStream::Plain(TcpStream::connect(address).await.unwrap());
+            let (ws, _) = tokio_tungstenite::client_async(format!("ws://{address}/apiws"), raw)
+                .await
+                .unwrap();
+            let session = Session {
+                dc: 2,
+                media: false,
+                test: false,
+                tag: [0xee; 4],
+                init: [9; 64],
+                client_in: cipher(1),
+                client_out: cipher(2),
+                relay_in: cipher(4),
+                relay_out: cipher(3),
+            };
+            let (mut client, server) = tokio::io::duplex(128);
+            let relay = tokio::spawn(via_ws(server, session, ws));
+            let mut cipher_in = cipher(1);
+            for part in [b"abcdefgh", b"ABCDEFGH"] {
+                let mut frame = 8u32.to_le_bytes().to_vec();
+                frame.extend_from_slice(part);
+                cipher_in.apply_keystream(&mut frame);
+                for fragment in frame.chunks(3) {
+                    client.write_all(fragment).await.unwrap();
+                }
+            }
+            let mut received = [0; 14];
+            client.read_exact(&mut received).await.unwrap();
+            cipher(2).apply_keystream(&mut received);
+            assert_eq!(&received, b"answer from dc");
+            peer.await.unwrap();
+            relay.await.unwrap().unwrap();
+        })
+        .await
+        .unwrap();
+    }
+}
+
+#[cfg(test)]
+#[path = "tcp_roundtrip.rs"]
+mod tcp_roundtrip;

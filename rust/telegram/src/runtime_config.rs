@@ -1,6 +1,7 @@
+use indexmap::IndexMap;
 use serde_json::Value;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     io,
     net::{IpAddr, Ipv4Addr},
 };
@@ -9,7 +10,7 @@ use std::{
 pub(crate) struct Config {
     pub port: u16,
     pub secret: [u8; 16],
-    pub dc_redirects: HashMap<u16, IpAddr>,
+    pub dc_redirects: IndexMap<u16, IpAddr>,
     pub buffer_size: usize,
     pub pool_size: usize,
     pub cfproxy: bool,
@@ -42,6 +43,28 @@ fn domains(value: Option<&Value>) -> Vec<String> {
         .map(str::to_owned)
         .collect()
 }
+pub(crate) fn fake_tls_domain(cfg: &serde_json::Map<String, Value>) -> io::Result<Option<&str>> {
+    let domain = cfg
+        .get("fake_tls_domain")
+        .map(|v| v.as_str().ok_or_else(|| bad("fake_tls_domain")))
+        .transpose()?
+        .filter(|s| !s.is_empty());
+    if let Some(host) = domain
+        && (host.len() > 253
+            || !host.split('.').all(|label| {
+                !label.is_empty()
+                    && label.len() <= 63
+                    && !label.starts_with('-')
+                    && !label.ends_with('-')
+                    && label
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || c == b'-')
+            }))
+    {
+        return Err(bad("fake_tls_domain"));
+    }
+    Ok(domain)
+}
 impl Config {
     pub fn parse(raw: &str) -> io::Result<Self> {
         let value: Value = serde_json::from_str(raw)?;
@@ -67,7 +90,7 @@ impl Config {
             .ok_or_else(|| bad("secret"))?;
         let secret =
             std::array::from_fn(|i| u8::from_str_radix(&encoded[i * 2..i * 2 + 2], 16).unwrap());
-        let mut dc_redirects = HashMap::new();
+        let mut dc_redirects = IndexMap::new();
         if let Some(v) = cfg.get("dc_ip") {
             for entry in v.as_array().ok_or_else(|| bad("dc_ip"))? {
                 let (dc, ip) = entry
@@ -92,19 +115,7 @@ impl Config {
                 vec![]
             })
         };
-        let domain = cfg
-            .get("fake_tls_domain")
-            .map(|v| v.as_str().ok_or_else(|| bad("fake_tls_domain")))
-            .transpose()?
-            .filter(|s| !s.is_empty());
-        if let Some(host) = domain
-            && (host.len() > 253
-                || !host
-                    .bytes()
-                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'-')))
-        {
-            return Err(bad("fake_tls_domain"));
-        }
+        let domain = fake_tls_domain(cfg)?;
         Ok(Self {
             port,
             secret,

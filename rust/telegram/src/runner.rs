@@ -191,8 +191,9 @@ impl Runner {
         state: &AppState,
         cancel: &AtomicBool,
     ) -> io::Result<()> {
-        self.stop()?;
         cancelled(cancel)?;
+        config::validate(&state.telegram)?;
+        self.stop()?;
         #[cfg(windows)]
         check_external()?;
         let raw = config::configuration(&data_root.join("Telegram"), state)?;
@@ -229,18 +230,33 @@ impl Runner {
         let dc = if cfg.dc_redirects.contains_key(&2) {
             2
         } else {
-            cfg.dc_redirects.keys().copied().min().unwrap_or(2)
+            cfg.dc_redirects.keys().next().copied().unwrap_or(2)
         };
-        service.rt.block_on(async{
-            let request=async {
-                let mut stream=TcpStream::connect((Ipv4Addr::LOCALHOST,cfg.port)).await?;
-                if cfg.proxy_protocol{stream.write_all(b"PROXY UNKNOWN\r\n").await?;stream.flush().await?;}
-                let stream = fake_tls::client(stream,cfg.fake_tls_domain.as_deref(),&cfg.secret).await?;
-                protocol::probe(stream,&cfg.secret,i16::try_from(dc).map_err(io::Error::other)?).await
-            };
-            tokio::select!{
-                res=tokio::time::timeout(Duration::from_secs(12),request)=>Ok(matches!(res,Ok(Ok(()))).then(||start.elapsed().as_millis() as u64)),
-                _=async{while !cancel.load(Ordering::Acquire){tokio::time::sleep(Duration::from_millis(80)).await;}}=>Err(io::Error::new(io::ErrorKind::Interrupted,"Проверка Telegram отменена.")),
+        let exchange = async {
+            let mut stream = TcpStream::connect((Ipv4Addr::LOCALHOST, cfg.port)).await?;
+            if cfg.proxy_protocol {
+                stream.write_all(b"PROXY UNKNOWN\r\n").await?;
+                stream.flush().await?;
+            }
+            let stream =
+                fake_tls::client(stream, cfg.fake_tls_domain.as_deref(), &cfg.secret).await?;
+            protocol::probe(
+                stream,
+                &cfg.secret,
+                i16::try_from(dc).map_err(io::Error::other)?,
+            )
+            .await
+        };
+        service.rt.block_on(async {
+            tokio::select! {
+                result = tokio::time::timeout(Duration::from_secs(12), exchange) => {
+                    Ok(matches!(result, Ok(Ok(()))).then(|| start.elapsed().as_millis() as u64))
+                }
+                _ = async {
+                    while !cancel.load(Ordering::Acquire) {
+                        tokio::time::sleep(Duration::from_millis(80)).await;
+                    }
+                } => Err(io::Error::new(io::ErrorKind::Interrupted, "Проверка Telegram отменена.")),
             }
         })
     }
@@ -256,5 +272,57 @@ impl Runner {
 impl Drop for Runner {
     fn drop(&mut self) {
         let _ = self.stop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::tests::respond_to_probe;
+    #[test]
+    fn local_probe_works_with_proxy_header_and_authenticated_tls() {
+        for domain in ["", "app.local"] {
+            for proxy_protocol in [true, false] {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                let listener = runtime
+                    .block_on(TcpListener::bind((Ipv4Addr::LOCALHOST, 0)))
+                    .unwrap();
+                let cfg = serde_json::json!({
+                    "port": listener.local_addr().unwrap().port(),
+                    "secret":"2a".repeat(16),
+                    "fake_tls_domain": domain,
+                    "proxy_protocol": proxy_protocol,
+                });
+                let cfg = Arc::new(Config::parse(&cfg.to_string()).unwrap());
+                let peer = Arc::clone(&cfg);
+                let task = runtime.spawn(async move {
+                    for correct in [true, false] {
+                        let (mut stream, _) = listener.accept().await?;
+                        if peer.proxy_protocol {
+                            consume_proxy_header(&mut stream).await?;
+                        }
+                        let stream =
+                            fake_tls::accept(stream, peer.fake_tls_domain.as_deref(), &peer.secret)
+                                .await?;
+                        respond_to_probe(stream, Some(&peer.secret), correct).await;
+                    }
+                    Ok(())
+                });
+                let runner = Runner {
+                    service: Some(Service {
+                        rt: runtime,
+                        task,
+                        config: cfg,
+                    }),
+                };
+                let active = AtomicBool::new(false);
+                assert!(runner.probe(&active).unwrap().is_some());
+                assert!(runner.probe(&active).unwrap().is_none());
+                assert!(runner.service.as_ref().unwrap().task.is_finished());
+            }
+        }
     }
 }

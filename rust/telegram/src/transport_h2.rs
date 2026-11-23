@@ -682,8 +682,6 @@ impl H2Channel {
                     .await
                     .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "HTTP/2 closed"))?;
             }
-            #[allow(unreachable_code)]
-            Ok::<(), io::Error>(())
         };
         let broker = ChannelRequests::new(self.lane)
             .run(&mut writer, rx, tag, |buf| encrypt.apply_keystream(buf));
@@ -795,10 +793,12 @@ mod tests {
         let server = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
             let mut h = h2::server::handshake(stream).await.unwrap();
+            let both = Arc::new(tokio::sync::Barrier::new(2));
             while let Some(req) = h.accept().await {
                 let (req, mut tx) = req.unwrap();
                 assert_eq!(req.method(), http::Method::POST);
                 assert_eq!(req.uri().path(), "/api");
+                let both = both.clone();
                 tokio::spawn(async move {
                     let mut body = req.into_body();
                     let mut data = Vec::new();
@@ -814,6 +814,7 @@ mod tests {
                         )
                         .unwrap();
                     } else {
+                        both.wait().await;
                         let mut s = tx
                             .send_response(
                                 http::Response::builder().status(200).body(()).unwrap(),
@@ -845,13 +846,18 @@ mod tests {
         let (tx, inbox) = mpsc::channel(1);
         let run =
             tokio::spawn(async move { broker.run(&mut socket, inbox, ABRIDGED, |_| {}).await });
-        tx.send(vec![1; 24]).await.unwrap();
-        let mut first = [0; 9];
+        let mut a = plain();
+        let mut b = a.clone();
+        a[23] = 1;
+        b[23] = 3;
+        tx.send(a).await.unwrap();
+        tx.send(b).await.unwrap();
+        let mut first = [0; 18];
         tokio::time::timeout(Duration::from_secs(2), rx.read_exact(&mut first))
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(&first, b"\x02MTProto!");
+        assert_eq!(&first, b"\x02MTProto!\x02MTProto!");
         tx.send(vec![2; 24]).await.unwrap();
         let mut error = [0; 5];
         tokio::time::timeout(Duration::from_secs(2), async {

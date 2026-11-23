@@ -1,6 +1,8 @@
+#[cfg(any(windows, test))]
 use sha2::{Digest, Sha256};
 
 // .NET hashes a semicolon-separated list of sorted, lowercase GUIDs ("D" format).
+#[cfg(any(windows, test))]
 fn profile_key(mut ids: Vec<String>) -> Option<String> {
     ids.retain(|s| s != "00000000-0000-0000-0000-000000000000");
     ids.sort_unstable();

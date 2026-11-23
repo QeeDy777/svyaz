@@ -66,6 +66,9 @@ pub fn run(
         return Err("Выберите Discord или YouTube для подбора альта.".into());
     }
     check_cancel(cancel).map_err(message)?;
+    if !super::runner::network_available() {
+        return Err("Нет сетевого подключения. Подключите Wi-Fi или сетевой кабель.".into());
+    }
     let network = network_identity();
     let preferred = network
         .as_ref()
@@ -207,7 +210,19 @@ pub fn run(
                 )));
             }
         }
+        if pending
+            .as_ref()
+            .is_some_and(|candidate| candidate.id != pkg.id)
+        {
+            progress(Event::Status(
+                "Новый пакет не прошёл проверку. Используется предыдущий.".into(),
+            ));
+        }
         return Ok((runner, winner));
+    }
+    check_cancel(cancel).map_err(message)?;
+    if !super::runner::network_available() || network != network_identity() {
+        return Err("Сеть изменилась во время подбора. Ожидаем подключения.".into());
     }
     progress(Event::ManualRetryRequired);
     Err("Подбор завершён. Ни один альт не прошёл все проверки и подтверждение. Можно повторить подбор вручную.".into())
